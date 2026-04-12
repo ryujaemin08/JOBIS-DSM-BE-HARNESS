@@ -1,0 +1,51 @@
+{
+  "name": "update-interview-date",
+  "summary": "면접일자 수정 API",
+  "method": "PATCH",
+  "path": "/interviews/{interview-id}/date",
+  "purpose": "기존 면접 일정의 날짜와 시간을 수정한다.",
+  "authority": ["TEACHER"],
+  "request": {
+    "path_params": [
+      {
+        "name": "interview-id",
+        "type": "long",
+        "required": true
+      }
+    ],
+    "query_params": [],
+    "headers": [],
+    "body": {
+      "fields": [
+        {
+          "name": "interview_date",
+          "type": "datetime",
+          "required": true,
+          "example": "2026-05-01T10:00:00"
+        }
+      ]
+    }
+  },
+  "responses": {
+    "success": {
+      "status": 204,
+      "body": null
+    },
+    "failures": [
+      { "case": "not_found", "status": 404 },
+      { "case": "unauthorized", "status": 403 },
+      { "case": "invalid_date", "status": 400 }
+    ]
+  },
+  "side_effects": [
+    "tbl_interview.interview_date 값이 수정된다"
+  ],
+  "qa_expectations": {
+    "success_assertions": [
+      "요청한 면접일자가 다시 조회되면 수정된 값이어야 한다"
+    ],
+    "negative_assertions": [
+      "권한 없는 사용자는 403이어야 한다"
+    ]
+  }
+}

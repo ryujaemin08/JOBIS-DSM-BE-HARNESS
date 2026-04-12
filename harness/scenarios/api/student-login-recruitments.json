@@ -1,0 +1,53 @@
+{
+  "name": "student-login-recruitments",
+  "kind": "qa",
+  "base_url": "http://localhost:18080",
+  "steps": [
+    {
+      "id": "login",
+      "request": {
+        "method": "POST",
+        "path": "/users/login",
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "account_id": "harness.student.01",
+          "password": "HarnessPass123!",
+          "platform_type": "WEB",
+          "device_token": "harness-device-token"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "required_paths": ["access_token", "refresh_token", "authority", "platform_type"],
+        "equals": {
+          "authority": "STUDENT",
+          "platform_type": "WEB"
+        }
+      }
+    },
+    {
+      "id": "list_recruitments",
+      "request": {
+        "method": "GET",
+        "path": "/recruitments/student",
+        "headers": {
+          "Authorization": "Bearer {{steps.login.body.access_token}}"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "required_paths": ["recruitments"],
+        "min_items": {
+          "path": "recruitments",
+          "count": 1
+        },
+        "first_item_required_paths": {
+          "path": "recruitments",
+          "paths": ["company_name", "status"]
+        }
+      }
+    }
+  ]
+}

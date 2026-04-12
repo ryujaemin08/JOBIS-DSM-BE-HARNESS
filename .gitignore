@@ -48,14 +48,17 @@ AGENTS.md
 
 ### AI Agent Files ###
 # Local repository guidance for Codex/agents
-AGENTS.md
 **/AGENTS.md
 AGENTS.override.md
 **/AGENTS.override.md
-docs/
 .omx/
 pr-*-comment-audit.md
 *.log
 logs/
 .opencode/**/*.md
 .sisyphus/**/*.md
+
+### Harness Runtime ###
+harness/reports/latest/*
+!harness/reports/latest/.gitkeep
+harness/scenarios/api/generated/*

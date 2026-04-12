@@ -1,0 +1,65 @@
+spring:
+  config:
+    activate:
+      on-profile: harness
+
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:${HARNESS_MYSQL_PORT:33306}/${HARNESS_DB_NAME:jobis_harness}?useSSL=false&characterEncoding=UTF-8&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true&tinyInt1isBit=false&rewriteBatchedStatements=true
+    username: ${HARNESS_DB_USERNAME:root}
+    password: ${HARNESS_DB_PASSWORD:1234}
+
+  flyway:
+    enabled: false
+
+  jpa:
+    hibernate:
+      ddl-auto: create
+    properties:
+      hibernate:
+        show_sql: false
+        format_sql: false
+
+  rabbitmq:
+    host: ${HARNESS_RABBITMQ_HOST:localhost}
+    port: ${HARNESS_RABBITMQ_PORT:35672}
+    username: ${HARNESS_RABBITMQ_USERNAME:guest}
+    password: ${HARNESS_RABBITMQ_PASSWORD:guest}
+    ssl:
+      enabled: false
+
+server:
+  port: ${HARNESS_APP_PORT:18080}
+
+redis:
+  host: ${HARNESS_REDIS_HOST:localhost}
+  port: ${HARNESS_REDIS_PORT:36379}
+  password: ${HARNESS_REDIS_PASSWORD:asdf}
+
+jwt:
+  secret: ${HARNESS_JWT_SECRET:harness-secret-key-please-change-if-needed}
+  access-exp: ${HARNESS_ACCESS_EXP:3600}
+  refresh-exp: ${HARNESS_REFRESH_EXP:1209600}
+
+auth-code: ${HARNESS_AUTH_CODE:harness-auth-code}
+
+openfeign:
+  access-key: ${HARNESS_API_ACCESS_KEY:harness-access-key}
+
+cloud:
+  aws:
+    s3:
+      bucket: ${HARNESS_S3_BUCKET:harness-bucket}
+      url: ${HARNESS_S3_URL:http://localhost:38080/s3}
+    credentials:
+      access-key: ${HARNESS_AWS_ACCESS:harness-access}
+      secret-key: ${HARNESS_AWS_SECRET:harness-secret}
+    region:
+      static: ${HARNESS_S3_REGION:ap-northeast-2}
+
+fcm:
+  json: ${HARNESS_FCM_JSON:{}}
+
+slack:
+  url: ${HARNESS_SLACK_URL:http://localhost:38080/slack/}
+  token: ${HARNESS_SLACK_TOKEN:noop}
