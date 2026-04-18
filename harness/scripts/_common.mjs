@@ -328,8 +328,8 @@ export function getGradleCommand() {
   }
 
   return {
-    command: path.join(repoRoot, "gradlew"),
-    args: [":jobis-infrastructure:bootRun"],
+    command: "sh",
+    args: [path.join(repoRoot, "gradlew"), ":jobis-infrastructure:bootRun"],
   };
 }
 
