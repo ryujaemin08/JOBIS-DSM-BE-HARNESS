@@ -327,10 +327,11 @@ export function getGradleCommand() {
     };
   }
 
-  // gradlew on Windows NTFS has CRLF line endings; strip \r before executing
+  // gradlew on Windows NTFS has CRLF; strip \r and pass correct $0 so APP_HOME resolves correctly
+  const gradlewPath = path.join(repoRoot, "gradlew");
   return {
     command: "bash",
-    args: ["-c", `exec bash <(sed 's/\\r//' '${path.join(repoRoot, "gradlew")}') ':jobis-infrastructure:bootRun'`],
+    args: ["-c", `exec bash -c "$(tr -d '\\r' < '${gradlewPath}')" '${gradlewPath}' ':jobis-infrastructure:bootRun'`],
   };
 }
 
