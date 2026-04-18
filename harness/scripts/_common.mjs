@@ -327,9 +327,10 @@ export function getGradleCommand() {
     };
   }
 
+  // gradlew on Windows NTFS has CRLF line endings; strip \r before executing
   return {
-    command: "sh",
-    args: [path.join(repoRoot, "gradlew"), ":jobis-infrastructure:bootRun"],
+    command: "bash",
+    args: ["-c", `exec bash <(sed 's/\\r//' '${path.join(repoRoot, "gradlew")}') ':jobis-infrastructure:bootRun'`],
   };
 }
 
