@@ -9,13 +9,25 @@ const __dirname = path.dirname(__filename);
 
 export const repoRoot = path.resolve(__dirname, "..", "..");
 export const reportDir = path.join(repoRoot, "harness", "reports", "generated");
+export const fixtureGeneratedDir = path.join(repoRoot, "harness", "fixtures", "generated");
 export const composeFile = path.join(repoRoot, "harness", "docker-compose.harness.yml");
 export const pidFile = path.join(reportDir, "app.pid");
 export const appOutLog = path.join(reportDir, "app.out.log");
 export const appErrLog = path.join(reportDir, "app.err.log");
 export const runtimeFile = path.join(reportDir, "runtime.json");
-export const fixturePlanFile = path.join(reportDir, "fixture-plan.json");
+export const fixturePlanFile = path.join(fixtureGeneratedDir, "fixture-plan.json");
 export const composeProjectName = `jobis_harness_${path.basename(repoRoot).replace(/[^a-zA-Z0-9]/g, "_").toLowerCase()}`;
+
+// Fixed container names from docker-compose.harness.yml (container_name overrides project-based naming)
+export const containerNames = {
+  mysql: "jobis-harness-mysql",
+  redis: "jobis-harness-redis",
+  rabbitmq: "jobis-harness-rabbitmq",
+  mockHttp: "jobis-harness-mock-http",
+};
+export const scenarioGeneratedDir = path.join(repoRoot, "harness", "scenarios", "generated");
+export const generatedQaScenarioDir = path.join(scenarioGeneratedDir, "api");
+export const generatedSreScenarioDir = path.join(scenarioGeneratedDir, "reliability");
 
 export const harnessEnv = {
   PROFILE: "harness",
@@ -40,25 +52,16 @@ export const harnessEnv = {
   HARNESS_API_ACCESS_KEY: "harness-access-key",
 };
 
-export const qaScenarioPath = "harness/scenarios/api/student-login-recruitments.json";
-export const sreScenarioPath = "harness/scenarios/reliability/startup-health.json";
-
 export function ensureReportDir() {
   fs.mkdirSync(reportDir, { recursive: true });
 }
 
-export function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-export function isWindows() {
-  return process.platform === "win32";
+export function ensureFixtureGeneratedDir() {
+  fs.mkdirSync(fixtureGeneratedDir, { recursive: true });
 }
 
 export function readRuntimeEnv() {
-  if (!fs.existsSync(runtimeFile)) {
-    return { ...harnessEnv };
-  }
+  if (!fs.existsSync(runtimeFile)) return { ...harnessEnv };
   try {
     return { ...harnessEnv, ...JSON.parse(fs.readFileSync(runtimeFile, "utf8")) };
   } catch {
@@ -78,6 +81,14 @@ export function readFixturePlan(planPath = fixturePlanFile) {
   } catch {
     return null;
   }
+}
+
+export function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export function isWindows() {
+  return process.platform === "win32";
 }
 
 export function spawnLogged(command, args, options = {}) {
@@ -101,7 +112,9 @@ export function spawnLogged(command, args, options = {}) {
     });
 
     child.on("error", reject);
-    child.on("close", (code) => resolve({ code, stdout, stderr }));
+    child.on("close", (code) => {
+      resolve({ code, stdout, stderr });
+    });
   });
 }
 
@@ -140,7 +153,7 @@ export async function docker(args, input) {
 
 export async function mysqlQuery(sql) {
   const result = await docker(
-    ["exec", "-i", `${composeProjectName}-mysql-1`, "mysql", "-N", "-uroot", "-p1234", "-D", "jobis_harness"],
+    ["exec", "-i", containerNames.mysql, "mysql", "-N", "-uroot", "-p1234", "-D", "jobis_harness"],
     `${sql}\n`,
   );
   if (result.code !== 0) {
@@ -161,8 +174,15 @@ ORDER BY table_name;
 }
 
 export async function getDockerHealth(containerName) {
-  const result = await spawnLogged("docker", ["inspect", "--format", "{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}", containerName]);
-  if (result.code !== 0) return null;
+  const result = await spawnLogged("docker", [
+    "inspect",
+    "--format",
+    "{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}",
+    containerName,
+  ]);
+  if (result.code !== 0) {
+    return null;
+  }
   return result.stdout.trim();
 }
 
@@ -170,6 +190,7 @@ export async function waitForPort(port, timeoutMs = 1000) {
   return new Promise((resolve) => {
     const socket = new net.Socket();
     let settled = false;
+
     const done = (value) => {
       if (!settled) {
         settled = true;
@@ -177,6 +198,7 @@ export async function waitForPort(port, timeoutMs = 1000) {
         resolve(value);
       }
     };
+
     socket.setTimeout(timeoutMs);
     socket.once("connect", () => done(true));
     socket.once("timeout", () => done(false));
@@ -199,6 +221,24 @@ export async function findFreePort(startPort, endPort = startPort + 200) {
     if (await isPortFree(port)) return String(port);
   }
   throw new Error(`No free port found in range ${startPort}-${endPort}`);
+}
+
+export function repoRelative(p) {
+  return path.relative(repoRoot, path.resolve(p)).split(path.sep).join("/");
+}
+
+async function stopAllJobisProcessesUnix() {
+  const result = await spawnLogged("sh", ["-c",
+    "pgrep -f 'team\\.retum\\.jobis\\.JobisApplication\\|jobis-infrastructure:bootRun' 2>/dev/null || true",
+  ]);
+  if (!result.stdout.trim()) return;
+  const pids = result.stdout.trim().split(/\n/).filter(Boolean);
+  for (const pid of pids) {
+    await spawnLogged("kill", ["-TERM", pid]);
+  }
+  if (pids.length > 0) {
+    await sleep(2000);
+  }
 }
 
 export async function stopAllJobisProcessesWindows() {
@@ -236,6 +276,8 @@ export async function stopAllJobisProcessesWindows() {
 export async function stopExistingHarnessProcess() {
   if (isWindows()) {
     await stopAllJobisProcessesWindows();
+  } else {
+    await stopAllJobisProcessesUnix();
   }
 
   if (!fs.existsSync(pidFile)) {
@@ -284,6 +326,7 @@ export function getGradleCommand() {
       args: ["/c", path.join(repoRoot, "gradlew.bat"), ":jobis-infrastructure:bootRun"],
     };
   }
+
   return {
     command: path.join(repoRoot, "gradlew"),
     args: [":jobis-infrastructure:bootRun"],
@@ -319,10 +362,10 @@ export function startBootRunProcess() {
 export async function waitForDependencies() {
   const runtimeEnv = readRuntimeEnv();
   const dependencies = [
-    { name: `${composeProjectName}-mysql-1`, port: Number(runtimeEnv.HARNESS_MYSQL_PORT), requireHealth: true },
-    { name: `${composeProjectName}-redis-1`, port: Number(runtimeEnv.HARNESS_REDIS_PORT), requireHealth: false },
-    { name: `${composeProjectName}-rabbitmq-1`, port: Number(runtimeEnv.HARNESS_RABBITMQ_PORT), requireHealth: true },
-    { name: `${composeProjectName}-mock-http-1`, port: Number(runtimeEnv.HARNESS_MOCK_HTTP_PORT), requireHealth: false },
+    { name: containerNames.mysql, port: Number(runtimeEnv.HARNESS_MYSQL_PORT), requireHealth: true },
+    { name: containerNames.redis, port: Number(runtimeEnv.HARNESS_REDIS_PORT), requireHealth: false },
+    { name: containerNames.rabbitmq, port: Number(runtimeEnv.HARNESS_RABBITMQ_PORT), requireHealth: true },
+    { name: containerNames.mockHttp, port: Number(runtimeEnv.HARNESS_MOCK_HTTP_PORT), requireHealth: false },
   ];
 
   for (const dependency of dependencies) {
@@ -354,7 +397,9 @@ export async function waitForHealth() {
       const response = await fetch(url);
       if (response.ok) {
         const body = await response.json();
-        if (body.status === "UP") return body;
+        if (body.status === "UP") {
+          return body;
+        }
       }
     } catch {
     }
@@ -418,9 +463,13 @@ export function deepTemplate(value, context) {
       return resolved == null ? "" : String(resolved);
     });
   }
-  if (Array.isArray(value)) return value.map((item) => deepTemplate(item, context));
+  if (Array.isArray(value)) {
+    return value.map((item) => deepTemplate(item, context));
+  }
   if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([key, val]) => [key, deepTemplate(val, context)]));
+    return Object.fromEntries(
+      Object.entries(value).map(([key, val]) => [key, deepTemplate(val, context)]),
+    );
   }
   return value;
 }
@@ -504,4 +553,131 @@ export function assertResponse(stepId, result, expect = {}) {
       throw new Error(`${stepId} expected response to contain ${token}`);
     }
   }
+
+  for (const assertion of expect.assertions ?? []) {
+    assertStructuredAssertion(stepId, result, assertion);
+  }
+}
+
+function assertStructuredAssertion(stepId, result, assertion) {
+  switch (assertion.type) {
+    case "path_exists": {
+      if (getPath(result.body, assertion.path) == null) {
+        throw new Error(`${stepId} expected path ${assertion.path} to exist`);
+      }
+      return;
+    }
+    case "path_equals": {
+      if (getPath(result.body, assertion.path) !== assertion.expected) {
+        throw new Error(`${stepId} expected ${assertion.path}=${assertion.expected}`);
+      }
+      return;
+    }
+    case "path_not_empty": {
+      const value = getPath(result.body, assertion.path);
+      if (value == null || value === "" || (Array.isArray(value) && value.length === 0)) {
+        throw new Error(`${stepId} expected ${assertion.path} to be non-empty`);
+      }
+      return;
+    }
+    case "body_null": {
+      if (result.body != null && result.raw_text !== "") {
+        throw new Error(`${stepId} expected empty response body`);
+      }
+      return;
+    }
+    case "array_min_items": {
+      const items = getRequiredArray(stepId, result, assertion.array_path);
+      if (items.length < assertion.count) {
+        throw new Error(`${stepId} expected at least ${assertion.count} items at ${assertion.array_path}`);
+      }
+      return;
+    }
+    case "array_length_matches_path": {
+      const items = getRequiredArray(stepId, result, assertion.array_path);
+      const value = getPath(result.body, assertion.path);
+      if (value !== items.length) {
+        throw new Error(`${stepId} expected ${assertion.path} to equal ${assertion.array_path}.length (${items.length})`);
+      }
+      return;
+    }
+    case "all_items_required_fields": {
+      const items = getRequiredArray(stepId, result, assertion.array_path);
+      if (items.length === 0) {
+        throw new Error(`${stepId} expected non-empty array at ${assertion.array_path}`);
+      }
+      for (const [index, item] of items.entries()) {
+        for (const field of assertion.fields ?? []) {
+          if (item == null || !(field in item)) {
+            throw new Error(`${stepId} item[${index}] missing field ${field}`);
+          }
+        }
+      }
+      return;
+    }
+    case "all_items_field_equals": {
+      const items = getRequiredArray(stepId, result, assertion.array_path);
+      for (const [index, item] of items.entries()) {
+        if (item?.[assertion.field] !== assertion.expected) {
+          throw new Error(`${stepId} item[${index}].${assertion.field} expected ${assertion.expected}`);
+        }
+      }
+      return;
+    }
+    case "all_items_field_contains": {
+      const items = getRequiredArray(stepId, result, assertion.array_path);
+      for (const [index, item] of items.entries()) {
+        const value = item?.[assertion.field];
+        if (typeof value !== "string" || !value.includes(assertion.expected)) {
+          throw new Error(`${stepId} item[${index}].${assertion.field} expected to contain ${assertion.expected}`);
+        }
+      }
+      return;
+    }
+    case "all_items_date_part_equals": {
+      const items = getRequiredArray(stepId, result, assertion.array_path);
+      for (const [index, item] of items.entries()) {
+        const value = item?.[assertion.field];
+        const actual = readDatePart(value, assertion.part);
+        if (actual !== assertion.expected) {
+          throw new Error(`${stepId} item[${index}].${assertion.field} ${assertion.part} expected ${assertion.expected} but was ${actual}`);
+        }
+      }
+      return;
+    }
+    case "array_contains_all": {
+      const values = getRequiredArray(stepId, result, assertion.path);
+      for (const expectedValue of assertion.values ?? []) {
+        if (!values.includes(expectedValue)) {
+          throw new Error(`${stepId} expected ${assertion.path} to contain ${expectedValue}`);
+        }
+      }
+      return;
+    }
+    default:
+      throw new Error(`${stepId} has unsupported assertion type ${assertion.type}`);
+  }
+}
+
+function getRequiredArray(stepId, result, pathValue) {
+  const value = getPath(result.body, pathValue);
+  if (!Array.isArray(value)) {
+    throw new Error(`${stepId} expected array at ${pathValue}`);
+  }
+  return value;
+}
+
+function readDatePart(value, part) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const [year, month] = value.split("-").map((segment) => Number(segment));
+  if (part === "year") {
+    return year;
+  }
+  if (part === "month") {
+    return month;
+  }
+  return null;
 }
