@@ -56,26 +56,25 @@
 ## Placement Rules
 
 ### Application Domain Pattern
-- `model/`
-  - aggregate 와 domain state
-- `usecase/`
-  - business operation 과 orchestration
-- `spi/`
-  - infrastructure dependency contract
-- `dto/`
-  - application boundary 에서 쓰는 request/response object
-- `event/`
-  - domain event
-- `exception/`
-  - domain-specific exception
+- `model/` — aggregate, domain state, business logic
+- `usecase/` — `@UseCase` / `@ReadOnlyUseCase` + `execute()` 메서드
+- `spi/` — port interface (`Query*Port`, `Command*Port`)
+- `spi/vo/` — QueryDSL projection 결과 VO (`*VO.java`)
+- `dto/request/` — domain request (`record` 타입)
+- `dto/response/` — response DTO (`@Getter @AllArgsConstructor` + static factory)
+- `dto/*Filter.java` — UseCase 쿼리 조건 묶음 (`@Getter @Builder`)
+- `exception/` — `*Exception.java` (JobisException 상속)
+- `exception/error/` — `*ErrorCode.java` (ErrorProperty 구현 enum)
 
 ### Infrastructure Pattern
-- `persistence/`
-  - entity, repository, mapper, QueryDSL query, port implementation
-- `presentation/`
-  - controller, web request DTO, web response DTO
-- external integration package
-  - third-party client, message broker, object storage, email 같은 delivery concern
+- `persistence/` — `*PersistenceAdapter.java` (`@Repository`)
+- `persistence/entity/` — JPA entity (`tbl_*` 테이블명)
+- `persistence/mapper/` — Entity ↔ Domain 변환
+- `persistence/repository/` — `*JpaRepository.java`
+- `persistence/repository/vo/` — QueryDSL Query VO (`Query*VO.java`, `@QueryProjection`)
+- `presentation/` — `*WebAdapter.java` (`@RestController`)
+- `presentation/dto/request/` — `*WebRequest.java` (validation + `toDomainRequest()`)
+- external integration package — third-party client, message broker, object storage, email
 
 ## Layer Responsibilities
 
@@ -120,14 +119,148 @@
 - batch read 에서 mapper 가 lazy relation 을 건드리면 `findAll() + stream().map(...)` 같은 naive pattern 을 피한다.
 
 ## Naming And Annotation Conventions
-- `@UseCase`
-  - write use case, transactional
-- `@ReadOnlyUseCase`
-  - read-only use case
-- `*PersistenceAdapter`
-  - persistence-side port implementation
-- `*WebAdapter`
-  - REST controller adapter
+- `@UseCase` — write use case (`@Transactional`)
+- `@ReadOnlyUseCase` — read-only use case (`@Transactional(readOnly = true)`)
+- `@Aggregate` — domain model root (marker only)
+- `*PersistenceAdapter` — `@Repository`, Port impl
+- `*WebAdapter` — `@RestController @RequestMapping("/path") @RequiredArgsConstructor`
+- Port 메서드: `get*` / `exists*` / `getCount*` (query), `save*` / `update*` / `delete*` (command)
+- `*OrThrow` suffix — not-found 시 예외를 던지는 port 메서드
+
+## Code Conventions
+
+### VO Pattern
+VO 는 ValueObject 가 아니다. hashCode/equals override 없음.
+QueryDSL 결과를 Port 계약으로 전달하는 단순 projection DTO 다.
+
+**Application VO** (`spi/vo/*VO.java`):
+```java
+@Getter
+@AllArgsConstructor  // 또는 @Builder (필드가 복잡한 경우)
+public class AcceptanceVO {
+    private final Long acceptanceId;
+    private final LocalDate contractDate;
+}
+```
+
+**Infrastructure Query VO** (`persistence/repository/vo/Query*VO.java`):
+```java
+@Getter
+public class QueryAcceptanceVO extends AcceptanceVO {
+    @QueryProjection
+    public QueryAcceptanceVO(Long acceptanceId, LocalDate contractDate) {
+        super(acceptanceId, contractDate);
+    }
+}
+```
+PersistenceAdapter 에서 `new QQueryAcceptanceVO(field1, field2)` 로 사용.
+
+### Request / Response DTO Pattern
+```java
+// Web request — presentation/dto/request/*WebRequest.java
+@Getter @NoArgsConstructor
+public class SomeWebRequest {
+    @NotNull private LocalDate startDate;
+
+    public SomeRequest toDomainRequest() {
+        return new SomeRequest(startDate);
+    }
+}
+
+// Domain request — dto/request/*Request.java (record)
+public record SomeRequest(LocalDate startDate) {}
+
+// Response — dto/response/*Response.java
+@Getter @AllArgsConstructor
+public class SomeResponse {
+    @JsonProperty("start_date") private final LocalDate startDate;
+
+    public static SomeResponse from(List<SomeVO> vos) { ... }
+}
+```
+- Response 필드는 camelCase 변수명이어도 JSON key 는 `@JsonProperty("snake_case")` 로 명시
+- `@RequestParam(name = "snake_case", required = false)` 형태로 query param 수신
+
+### QueryDSL Conventions
+- Projection: `Projections.constructor` 사용 안 함 → `@QueryProjection` + `new QQuery*VO(...)`
+- Dynamic WHERE: `null` 반환 시 조건 자동 생략되는 `BooleanExpression` private 메서드
+```java
+private BooleanExpression eqStudentId(Long studentId) {
+    return studentId == null ? null : entity.studentId.eq(studentId);
+}
+```
+
+### WebAdapter HTTP Response Pattern
+`ResponseEntity` 사용 안 함. `@ResponseStatus` + void 또는 직접 DTO 반환.
+```java
+@ResponseStatus(HttpStatus.CREATED) @PostMapping
+public void create(...) { useCase.execute(...); }
+
+@ResponseStatus(HttpStatus.OK) @GetMapping
+public SomeResponse query(...) { return useCase.execute(...); }
+```
+
+### Exception Pattern
+```java
+// exception/error/*ErrorCode.java
+@Getter @AllArgsConstructor
+public enum SomeErrorCode implements ErrorProperty {
+    NOT_FOUND(HttpStatus.NOT_FOUND, "Not Found");
+    private final HttpStatus status;
+    private final String message;
+}
+
+// exception/*Exception.java
+public class SomeNotFoundException extends JobisException {
+    public static final JobisException EXCEPTION = new SomeNotFoundException();
+    private SomeNotFoundException() { super(SomeErrorCode.NOT_FOUND); }
+}
+// 사용: throw SomeNotFoundException.EXCEPTION  (new 로 생성하지 않음)
+```
+
+### Domain Model Pattern
+```java
+@Getter
+@Builder(toBuilder = true)  // 상태 변이는 toBuilder() 로 새 인스턴스 반환
+@Aggregate
+public class SomeDomain {
+    private final Long id;
+    ...
+    public SomeDomain changeState(String newValue) {
+        return this.toBuilder().field(newValue).build();
+    }
+}
+```
+
+### UseCase Auth Check Pattern
+```java
+// UseCase 내부에서 SecurityPort 로 Authority 분기
+Long studentId = null;
+if (securityPort.getCurrentUserAuthority() == Authority.STUDENT) {
+    studentId = securityPort.getCurrentUserId();
+}
+```
+
+### Cache Pattern (WebAdapter)
+```java
+@CacheConfig(cacheNames = CACHE_NAME)
+public class SomeWebAdapter {
+    @Cacheable @GetMapping("/...")
+    public SomeResponse get(...) { ... }
+
+    @CacheEvict(allEntries = true)
+    @ResponseStatus(HttpStatus.NO_CONTENT) @PatchMapping("/...")
+    public void update(...) { ... }
+}
+```
+
+### SecurityConfig Pattern
+```java
+.requestMatchers(HttpMethod.GET, "/path").hasAuthority(TEACHER.name())
+.requestMatchers(HttpMethod.GET, "/path").hasAnyAuthority(STUDENT.name(), DEVELOPER.name())
+.requestMatchers(HttpMethod.POST, "/path").permitAll()
+```
+Authority enum: `TEACHER`, `COMPANY`, `STUDENT`, `DEVELOPER`
 
 ## API Behavior Rules
 - POST create: `201 CREATED`
