@@ -23,7 +23,6 @@ const requiredChecks = [
   { key: "path", question: "endpoint path 가 필요합니다." },
   { key: "purpose", question: "비즈니스 목적이 필요합니다." },
   { key: "authority", question: "누가 호출 가능한지 authority 정의가 필요합니다." },
-  { key: "request.body.fields", question: "request body 또는 입력 필드 정의가 필요합니다." },
   { key: "responses.success.status", question: "성공 status code 가 필요합니다." },
   { key: "responses.failures", question: "대표 failure case 가 필요합니다." },
   { key: "qa_expectations.success_assertions", question: "성공 시 무엇을 검증해야 하는지 필요합니다." }
@@ -49,6 +48,19 @@ for (const check of requiredChecks) {
       question: check.question
     });
   }
+}
+
+const requestShape =
+  spec.request?.path_params?.length ||
+  spec.request?.query_params?.length ||
+  spec.request?.headers?.length ||
+  spec.request?.body?.fields?.length;
+
+if (!requestShape) {
+  missing.push({
+    field: "request",
+    question: "request 입력 정의가 필요합니다. path/query/header/body 중 하나 이상을 명시해 주세요."
+  });
 }
 
 const output = {

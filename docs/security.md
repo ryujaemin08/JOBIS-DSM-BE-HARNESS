@@ -35,7 +35,7 @@
 ## Logging And Error Handling Rules
 - password, JWT, refresh token, access key, 불필요한 personal data 를 log 하지 않는다.
 - error response 가 internal implementation detail 을 과하게 노출하면 안 된다.
-- exception handling 은 operator 진단 가능성을 유지하되 client 에게 과한 정보를 주지 않아야 한다.
+- exception handling 은 operator 진단 가능성을 유지하되 client 에게 과한 정보를 주지 않아야 ㅠㅠ 한다.
 
 ## External Integration Rules
 - external service 에 대해 authentication, timeout, retry, failure behavior 를 검토한다.

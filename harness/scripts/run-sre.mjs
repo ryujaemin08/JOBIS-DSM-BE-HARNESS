@@ -11,6 +11,7 @@ import {
   httpRequest,
   assertResponse,
   percentile,
+  getBaseUrl,
 } from "./_common.mjs";
 
 ensureReportDir();
@@ -18,6 +19,7 @@ ensureReportDir();
 const scenarioArgIndex = process.argv.indexOf("--scenario");
 const scenarioPath = scenarioArgIndex >= 0 ? process.argv[scenarioArgIndex + 1] : sreScenarioPath;
 const scenario = JSON.parse(fs.readFileSync(path.resolve(scenarioPath), "utf8"));
+const baseUrl = getBaseUrl(scenario.base_url);
 
 let logText = "";
 if (fs.existsSync(appOutLog)) {
@@ -37,6 +39,8 @@ const noisePatterns = [
   /GenerationTarget encountered exception accepting command/gi,
   /CommandAcceptanceException/gi,
   /Table 'jobis_harness\.[^']+' doesn't exist/gi,
+  /DefaultHandlerExceptionResolver[^\r\n]*/gi,
+  /HttpMessageNotReadableException[^\r\n]*/gi,
 ];
 for (const pattern of noisePatterns) {
   logText = logText.replace(pattern, "");
@@ -46,7 +50,7 @@ const probeResults = [];
 
 for (const probe of scenario.probes ?? []) {
   if (probe.type === "http_json" || probe.type === "http_text") {
-    const result = await httpRequest(scenario.base_url, probe.request, { steps: {} });
+    const result = await httpRequest(baseUrl, probe.request, { steps: {} });
     assertResponse(probe.id, result, probe.expect);
     probeResults.push({
       id: probe.id,
@@ -60,14 +64,14 @@ for (const probe of scenario.probes ?? []) {
   if (probe.type === "http_latency") {
     const context = { steps: {} };
     for (const setupStep of probe.setup_steps ?? []) {
-      const setupResult = await httpRequest(scenario.base_url, setupStep.request, context);
+      const setupResult = await httpRequest(baseUrl, setupStep.request, context);
       assertResponse(setupStep.id, setupResult, setupStep.expect);
       context.steps[setupStep.id] = setupResult;
     }
 
     const samples = [];
     for (let i = 0; i < (probe.samples ?? 3); i += 1) {
-      const result = await httpRequest(scenario.base_url, probe.request, context);
+      const result = await httpRequest(baseUrl, probe.request, context);
       assertResponse(probe.id, result, probe.expect);
       samples.push(result.duration_ms);
     }
@@ -105,6 +109,7 @@ const summary = {
   scenario: {
     name: scenario.name,
     path: scenarioPath,
+    base_url: baseUrl,
     git_sha: await getGitSha(),
     generated_at: nowIso(),
   },

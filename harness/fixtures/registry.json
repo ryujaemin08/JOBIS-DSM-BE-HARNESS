@@ -1,0 +1,52 @@
+{
+  "default": {
+    "base_fixtures": [
+      "harness/fixtures/mysql/base/001-identities.sql.tpl"
+    ],
+    "scenario_fixture": "harness/fixtures/mysql/scenarios/student-login-recruitments.sql.tpl",
+    "qa_scenario": "harness/scenarios/api/student-login-recruitments.json",
+    "sre_scenario": "harness/scenarios/reliability/startup-health.json",
+    "required_tables": [
+      "tbl_user",
+      "tbl_student",
+      "tbl_teacher",
+      "tbl_document_number",
+      "tbl_recruitment",
+      "tbl_interview"
+    ]
+  },
+  "student-login-recruitments": {
+    "base_fixtures": [
+      "harness/fixtures/mysql/base/001-identities.sql.tpl"
+    ],
+    "scenario_fixture": "harness/fixtures/mysql/scenarios/student-login-recruitments.sql.tpl",
+    "qa_scenario": "harness/scenarios/api/student-login-recruitments.json",
+    "sre_scenario": "harness/scenarios/reliability/startup-health.json",
+    "required_tables": [
+      "tbl_user",
+      "tbl_student",
+      "tbl_teacher",
+      "tbl_document_number",
+      "tbl_company",
+      "tbl_recruitment",
+      "tbl_recruit_area",
+      "tbl_recruit_area_code",
+      "tbl_code"
+    ]
+  },
+  "query-interviews": {
+    "base_fixtures": [
+      "harness/fixtures/mysql/base/001-identities.sql.tpl"
+    ],
+    "scenario_fixture": "harness/fixtures/mysql/scenarios/query-interviews.sql.tpl",
+    "qa_scenario": "harness/scenarios/api/generated/query-interviews.json",
+    "sre_scenario": "harness/scenarios/reliability/startup-health.json",
+    "required_tables": [
+      "tbl_user",
+      "tbl_student",
+      "tbl_teacher",
+      "tbl_document_number",
+      "tbl_interview"
+    ]
+  }
+}

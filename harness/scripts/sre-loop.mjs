@@ -5,6 +5,8 @@ import { spawnLogged, reportDir, nowIso, getGitSha } from "./_common.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const scenarioArgIndex = process.argv.indexOf("--scenario");
+const scenarioPath = scenarioArgIndex >= 0 ? process.argv[scenarioArgIndex + 1] : null;
 
 const maxAttempts = 5;
 const attempts = [];
@@ -20,7 +22,9 @@ function classifyFailure(message) {
 }
 
 for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-  const run = await spawnLogged("node", [path.join(__dirname, "run-sre.mjs")]);
+  const args = [path.join(__dirname, "run-sre.mjs")];
+  if (scenarioPath) args.push("--scenario", scenarioPath);
+  const run = await spawnLogged("node", args);
   if (run.code === 0) {
     const summary = JSON.parse(fs.readFileSync(path.join(reportDir, "sre-summary.json"), "utf8"));
     const loopReport = {

@@ -1,16 +1,17 @@
 {
   "name": "update-interview-date",
-  "summary": "면접일자 수정 API",
+  "summary": "Update interview date API",
   "method": "PATCH",
   "path": "/interviews/{interview-id}/date",
-  "purpose": "기존 면접 일정의 날짜와 시간을 수정한다.",
+  "purpose": "Update the scheduled date for an existing interview.",
   "authority": ["TEACHER"],
   "request": {
     "path_params": [
       {
         "name": "interview-id",
         "type": "long",
-        "required": true
+        "required": true,
+        "example": 11001
       }
     ],
     "query_params": [],
@@ -21,7 +22,7 @@
           "name": "interview_date",
           "type": "datetime",
           "required": true,
-          "example": "2026-05-01T10:00:00"
+          "example": "2026-05-01"
         }
       ]
     }
@@ -38,14 +39,25 @@
     ]
   },
   "side_effects": [
-    "tbl_interview.interview_date 값이 수정된다"
+    "The target interview row is updated with the requested interview_date.",
+    "A follow-up read should return the updated date."
   ],
   "qa_expectations": {
     "success_assertions": [
-      "요청한 면접일자가 다시 조회되면 수정된 값이어야 한다"
+      "The update request returns 204."
     ],
     "negative_assertions": [
-      "권한 없는 사용자는 403이어야 한다"
+      "A caller without authority receives 403."
     ]
+  },
+  "harness": {
+    "seed": {
+      "dataset_scale": 8
+    },
+    "bootstrap": {
+      "mode": "prefer_api",
+      "fallback_allowed": true,
+      "steps": []
+    }
   }
 }

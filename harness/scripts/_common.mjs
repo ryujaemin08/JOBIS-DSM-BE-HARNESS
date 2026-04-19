@@ -8,11 +8,14 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export const repoRoot = path.resolve(__dirname, "..", "..");
-export const reportDir = path.join(repoRoot, "harness", "reports", "latest");
+export const reportDir = path.join(repoRoot, "harness", "reports", "generated");
 export const composeFile = path.join(repoRoot, "harness", "docker-compose.harness.yml");
 export const pidFile = path.join(reportDir, "app.pid");
 export const appOutLog = path.join(reportDir, "app.out.log");
 export const appErrLog = path.join(reportDir, "app.err.log");
+export const runtimeFile = path.join(reportDir, "runtime.json");
+export const fixturePlanFile = path.join(reportDir, "fixture-plan.json");
+export const composeProjectName = `jobis_harness_${path.basename(repoRoot).replace(/[^a-zA-Z0-9]/g, "_").toLowerCase()}`;
 
 export const harnessEnv = {
   PROFILE: "harness",
@@ -26,10 +29,12 @@ export const harnessEnv = {
   HARNESS_REDIS_PASSWORD: "asdf",
   HARNESS_RABBITMQ_HOST: "localhost",
   HARNESS_RABBITMQ_PORT: "35672",
+  HARNESS_RABBITMQ_MANAGEMENT_PORT: "35673",
   HARNESS_RABBITMQ_USERNAME: "guest",
   HARNESS_RABBITMQ_PASSWORD: "guest",
   HARNESS_JWT_SECRET: "harness-secret-key-please-change-if-needed",
   HARNESS_FCM_JSON: "{}",
+  HARNESS_MOCK_HTTP_PORT: "38080",
   HARNESS_SLACK_URL: "http://localhost:38080/slack/",
   HARNESS_SLACK_TOKEN: "noop",
   HARNESS_API_ACCESS_KEY: "harness-access-key",
@@ -50,11 +55,36 @@ export function isWindows() {
   return process.platform === "win32";
 }
 
+export function readRuntimeEnv() {
+  if (!fs.existsSync(runtimeFile)) {
+    return { ...harnessEnv };
+  }
+  try {
+    return { ...harnessEnv, ...JSON.parse(fs.readFileSync(runtimeFile, "utf8")) };
+  } catch {
+    return { ...harnessEnv };
+  }
+}
+
+export function writeRuntimeEnv(runtimeEnv) {
+  ensureReportDir();
+  fs.writeFileSync(runtimeFile, `${JSON.stringify(runtimeEnv, null, 2)}\n`);
+}
+
+export function readFixturePlan(planPath = fixturePlanFile) {
+  if (!fs.existsSync(planPath)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(planPath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
 export function spawnLogged(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: repoRoot,
-      env: { ...process.env, ...harnessEnv, ...options.env },
+      env: { ...process.env, ...readRuntimeEnv(), ...options.env },
       shell: false,
       stdio: options.stdio ?? "pipe",
     });
@@ -62,27 +92,21 @@ export function spawnLogged(command, args, options = {}) {
     let stdout = "";
     let stderr = "";
 
-    if (child.stdout) {
-      child.stdout.on("data", (chunk) => {
-        stdout += chunk.toString();
-      });
-    }
+    child.stdout?.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
 
-    if (child.stderr) {
-      child.stderr.on("data", (chunk) => {
-        stderr += chunk.toString();
-      });
-    }
+    child.stderr?.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
 
     child.on("error", reject);
-    child.on("close", (code) => {
-      resolve({ code, stdout, stderr });
-    });
+    child.on("close", (code) => resolve({ code, stdout, stderr }));
   });
 }
 
 export async function dockerCompose(args) {
-  const result = await spawnLogged("docker", ["compose", "-f", composeFile, ...args]);
+  const result = await spawnLogged("docker", ["compose", "-p", composeProjectName, "-f", composeFile, ...args], { env: readRuntimeEnv() });
   if (result.code !== 0) {
     throw new Error(result.stderr || result.stdout || `docker compose failed: ${args.join(" ")}`);
   }
@@ -109,16 +133,14 @@ export async function docker(args, input) {
     child.on("error", reject);
     child.on("close", (code) => resolve({ code, stdout, stderr }));
 
-    if (input) {
-      child.stdin.write(input);
-    }
+    if (input) child.stdin.write(input);
     child.stdin.end();
   });
 }
 
 export async function mysqlQuery(sql) {
   const result = await docker(
-    ["exec", "-i", "jobis-harness-mysql", "mysql", "-N", "-uroot", "-p1234", "-D", "jobis_harness"],
+    ["exec", "-i", `${composeProjectName}-mysql-1`, "mysql", "-N", "-uroot", "-p1234", "-D", "jobis_harness"],
     `${sql}\n`,
   );
   if (result.code !== 0) {
@@ -127,16 +149,20 @@ export async function mysqlQuery(sql) {
   return result.stdout.trim();
 }
 
+export async function listExistingTables() {
+  const sql = `
+SELECT table_name
+FROM information_schema.tables
+WHERE table_schema = 'jobis_harness'
+ORDER BY table_name;
+  `;
+  const raw = await mysqlQuery(sql);
+  return raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+}
+
 export async function getDockerHealth(containerName) {
-  const result = await spawnLogged("docker", [
-    "inspect",
-    "--format",
-    "{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}",
-    containerName,
-  ]);
-  if (result.code !== 0) {
-    return null;
-  }
+  const result = await spawnLogged("docker", ["inspect", "--format", "{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}", containerName]);
+  if (result.code !== 0) return null;
   return result.stdout.trim();
 }
 
@@ -144,7 +170,6 @@ export async function waitForPort(port, timeoutMs = 1000) {
   return new Promise((resolve) => {
     const socket = new net.Socket();
     let settled = false;
-
     const done = (value) => {
       if (!settled) {
         settled = true;
@@ -152,7 +177,6 @@ export async function waitForPort(port, timeoutMs = 1000) {
         resolve(value);
       }
     };
-
     socket.setTimeout(timeoutMs);
     socket.once("connect", () => done(true));
     socket.once("timeout", () => done(false));
@@ -161,31 +185,80 @@ export async function waitForPort(port, timeoutMs = 1000) {
   });
 }
 
+export async function isPortFree(port) {
+  return new Promise((resolve) => {
+    const tester = net.createServer()
+      .once("error", () => resolve(false))
+      .once("listening", () => tester.close(() => resolve(true)))
+      .listen(port, "127.0.0.1");
+  });
+}
+
+export async function findFreePort(startPort, endPort = startPort + 200) {
+  for (let port = startPort; port <= endPort; port += 1) {
+    if (await isPortFree(port)) return String(port);
+  }
+  throw new Error(`No free port found in range ${startPort}-${endPort}`);
+}
+
+export async function stopAllJobisProcessesWindows() {
+  if (!isWindows()) return;
+
+  const command = [
+    "$targets = Get-CimInstance Win32_Process | Where-Object {",
+    "  ($_.Name -eq 'java.exe' -or $_.Name -eq 'powershell.exe' -or $_.Name -eq 'cmd.exe') -and",
+    "  ($_.CommandLine -match 'team\\.retum\\.jobis\\.JobisApplication' -or $_.CommandLine -match ':jobis-infrastructure:bootRun' -or $_.CommandLine -match 'JOBIS-DSM-BE')",
+    "};",
+    "if ($targets) { $targets.ProcessId | ConvertTo-Json -Compress }"
+  ].join(" ");
+
+  const result = await spawnLogged("powershell", ["-NoProfile", "-Command", command]);
+  if (result.code !== 0 || !result.stdout.trim()) return;
+
+  let processIds = [];
+  try {
+    const parsed = JSON.parse(result.stdout.trim());
+    processIds = Array.isArray(parsed) ? parsed : [parsed];
+  } catch {
+    return;
+  }
+
+  for (const processId of processIds) {
+    if (!processId) continue;
+    await spawnLogged("taskkill", ["/PID", String(processId), "/T", "/F"]);
+  }
+
+  if (processIds.length > 0) {
+    await sleep(2000);
+  }
+}
+
 export async function stopExistingHarnessProcess() {
+  if (isWindows()) {
+    await stopAllJobisProcessesWindows();
+  }
+
   if (!fs.existsSync(pidFile)) {
     return;
   }
 
   const pid = Number(fs.readFileSync(pidFile, "utf8").trim());
-  if (!pid) {
-    fs.rmSync(pidFile, { force: true });
-    return;
-  }
-
-  if (isWindows()) {
-    await spawnLogged("taskkill", ["/PID", String(pid), "/T", "/F"]);
-  } else {
-    try {
-      process.kill(-pid, "SIGTERM");
-    } catch {
+  if (pid) {
+    if (isWindows()) {
+      await spawnLogged("taskkill", ["/PID", String(pid), "/T", "/F"]);
+    } else {
       try {
-        process.kill(pid, "SIGTERM");
+        process.kill(-pid, "SIGTERM");
       } catch {
+        try {
+          process.kill(pid, "SIGTERM");
+        } catch {
+        }
       }
     }
+    await sleep(1500);
   }
 
-  await sleep(1500);
   for (let i = 0; i < 5; i += 1) {
     try {
       fs.rmSync(pidFile, { force: true });
@@ -196,6 +269,14 @@ export async function stopExistingHarnessProcess() {
   }
 }
 
+export async function stopExistingHarnessResources() {
+  await stopExistingHarnessProcess();
+  try {
+    await dockerCompose(["down", "-v", "--remove-orphans"]);
+  } catch {
+  }
+}
+
 export function getGradleCommand() {
   if (isWindows()) {
     return {
@@ -203,7 +284,6 @@ export function getGradleCommand() {
       args: ["/c", path.join(repoRoot, "gradlew.bat"), ":jobis-infrastructure:bootRun"],
     };
   }
-
   return {
     command: path.join(repoRoot, "gradlew"),
     args: [":jobis-infrastructure:bootRun"],
@@ -216,12 +296,13 @@ export function startBootRunProcess() {
   fs.rmSync(appErrLog, { force: true });
 
   const { command, args } = getGradleCommand();
+  const runtimeEnv = readRuntimeEnv();
   const outFd = fs.openSync(appOutLog, "a");
   const errFd = fs.openSync(appErrLog, "a");
 
   const child = spawn(command, args, {
     cwd: repoRoot,
-    env: { ...process.env, ...harnessEnv },
+    env: { ...process.env, ...runtimeEnv },
     detached: !isWindows(),
     shell: false,
     stdio: ["ignore", outFd, errFd],
@@ -236,11 +317,12 @@ export function startBootRunProcess() {
 }
 
 export async function waitForDependencies() {
+  const runtimeEnv = readRuntimeEnv();
   const dependencies = [
-    { name: "jobis-harness-mysql", port: 33306, requireHealth: true },
-    { name: "jobis-harness-redis", port: 36379, requireHealth: false },
-    { name: "jobis-harness-rabbitmq", port: 35672, requireHealth: false },
-    { name: "jobis-harness-mock-http", port: 38080, requireHealth: false },
+    { name: `${composeProjectName}-mysql-1`, port: Number(runtimeEnv.HARNESS_MYSQL_PORT), requireHealth: true },
+    { name: `${composeProjectName}-redis-1`, port: Number(runtimeEnv.HARNESS_REDIS_PORT), requireHealth: false },
+    { name: `${composeProjectName}-rabbitmq-1`, port: Number(runtimeEnv.HARNESS_RABBITMQ_PORT), requireHealth: true },
+    { name: `${composeProjectName}-mock-http-1`, port: Number(runtimeEnv.HARNESS_MOCK_HTTP_PORT), requireHealth: false },
   ];
 
   for (const dependency of dependencies) {
@@ -265,21 +347,28 @@ export async function waitForDependencies() {
 }
 
 export async function waitForHealth() {
-  const url = `http://localhost:${harnessEnv.HARNESS_APP_PORT}/actuator/health`;
+  const runtimeEnv = readRuntimeEnv();
+  const url = `http://localhost:${runtimeEnv.HARNESS_APP_PORT}/actuator/health`;
   for (let i = 0; i < 300; i += 1) {
     try {
       const response = await fetch(url);
       if (response.ok) {
         const body = await response.json();
-        if (body.status === "UP") {
-          return body;
-        }
+        if (body.status === "UP") return body;
       }
     } catch {
     }
     await sleep(1000);
   }
   throw new Error("Harness app did not become healthy.");
+}
+
+export function getBaseUrl(defaultBaseUrl = "http://localhost:18080") {
+  const runtimeEnv = readRuntimeEnv();
+  if (runtimeEnv.HARNESS_APP_PORT) {
+    return `http://localhost:${runtimeEnv.HARNESS_APP_PORT}`;
+  }
+  return defaultBaseUrl;
 }
 
 export async function waitForTables(tableNames) {
@@ -329,13 +418,9 @@ export function deepTemplate(value, context) {
       return resolved == null ? "" : String(resolved);
     });
   }
-  if (Array.isArray(value)) {
-    return value.map((item) => deepTemplate(item, context));
-  }
+  if (Array.isArray(value)) return value.map((item) => deepTemplate(item, context));
   if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, val]) => [key, deepTemplate(val, context)]),
-    );
+    return Object.fromEntries(Object.entries(value).map(([key, val]) => [key, deepTemplate(val, context)]));
   }
   return value;
 }
@@ -352,12 +437,13 @@ export async function httpRequest(baseUrl, request, context = {}) {
   const pathValue = deepTemplate(request.path ?? "/", context);
   const headers = deepTemplate(request.headers ?? {}, context);
   const bodyValue = request.body == null ? undefined : JSON.stringify(deepTemplate(request.body, context));
+  const query = deepTemplate(request.query ?? {}, context);
+  const queryString = new URLSearchParams(
+    Object.entries(query).filter(([, value]) => value != null && value !== ""),
+  ).toString();
+  const url = `${baseUrl}${pathValue}${queryString ? `?${queryString}` : ""}`;
   const startedAt = Date.now();
-  const response = await fetch(`${baseUrl}${pathValue}`, {
-    method,
-    headers,
-    body: bodyValue,
-  });
+  const response = await fetch(url, { method, headers, body: bodyValue });
   const durationMs = Date.now() - startedAt;
   const text = await response.text();
   let body;
@@ -369,6 +455,7 @@ export async function httpRequest(baseUrl, request, context = {}) {
   return {
     status: response.status,
     duration_ms: durationMs,
+    url,
     headers: Object.fromEntries(response.headers.entries()),
     body,
     raw_text: text,

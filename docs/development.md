@@ -30,47 +30,47 @@
 ```
 
 ## Harness Reading Order
-- 구조와 file placement 판단이 필요하면 `docs/architecture.md`
-- runtime confidence 나 health 기준이 필요하면 `docs/reliability.md`
-- auth, public exposure, secret handling 검토가 필요하면 `docs/security.md`
-- 최종 완료 품질을 점검하려면 `docs/quality-score.md`
-
-## Test Environment Notes
-- integration test 는 `jobis-infrastructure` 중심으로 존재한다.
-- integration test base class 는 `IntegrationTest` 다.
-- TestContainers MySQL 을 사용한다.
-- test profile 에서는 Flyway 가 꺼지고 Hibernate DDL auto 를 사용한다.
-
-## Style Rules
-- Checkstyle 이 강제된다.
-- Google Java style 에 가까운 convention 을 따른다.
-- maximum line length 는 180 characters 다.
-- style failure 는 build failure 로 취급한다.
+- For structure and placement decisions, read `docs/architecture.md`
+- For runtime confidence and health checks, read `docs/reliability.md`
+- For auth and exposure review, read `docs/security.md`
+- For release-readiness scoring, read `docs/quality-score.md`
+- For new or changed API intake and QA/SRE workflow, read `harness/README.md`
 
 ## Standard Feature Workflow
-1. `jobis-application` 에 domain model 을 추가 또는 수정한다.
-2. 필요한 `spi/` port 를 추가 또는 수정한다.
-3. use case 를 추가 또는 수정한다.
-4. infrastructure adapter 를 구현하거나 확장한다.
-5. request/response DTO 를 추가 또는 수정한다.
-6. test 를 추가 또는 수정한다.
+1. Add or update domain model logic in `jobis-application`
+2. Add or update ports in `spi/`
+3. Add or update the use case
+4. Implement or extend the infrastructure adapter
+5. Add or update request and response DTOs
+6. Add or update tests
+
+## New API Workflow
+1. Create or update a request contract under `harness/requests/`
+2. Before asking the user for a new contract, search `harness/requests/` for an existing matching contract when the request targets an existing API
+3. If the task is an existing API performance improvement or response/DTO change and a matching contract already exists, reuse it and go directly to harness execution
+4. Run `node harness/scripts/intake-api-request.mjs --request <path>`
+5. If the contract is incomplete, ask only for the missing required information and stop
+6. When complete, run `node harness/scripts/build-qa-scenario.mjs --request <path>`
+7. Implement the API
+8. Run `node harness/scripts/qa-loop.mjs`
+9. Run `node harness/scripts/sre-loop.mjs` when the change is runtime-sensitive or API-facing
+
+## Existing API Performance Workflow
+1. Run `node harness/scripts/find-request-contract.mjs --task "<task>"`
+2. Reuse the matched contract under `harness/requests/`
+3. Run `node harness/scripts/autopilot-harness.mjs --task "<task>" --request <matched-request>`
+4. If the target already meets the requested latency/SRE threshold, report the evidence instead of forcing a code change
 
 ## Database Workflow
-- Flyway migration 은 `jobis-infrastructure/src/main/resources/db/migration` 아래에 둔다.
-- naming format:
+- Flyway migrations live under `jobis-infrastructure/src/main/resources/db/migration`
+- Naming format:
 ```text
 V{version}__{description}.sql
 ```
-- schema change 가 있다면 Flyway migration 을 같이 만드는 것이 기본이다.
+- If schema changes, a Flyway migration is expected
 
 ## Before Finishing Work
-- 가장 작은 relevant test scope 부터 실행한다.
-- shared infrastructure 가 바뀌었으면 더 넓은 verification 을 실행한다.
-- Java code 를 바꿨으면 style check 를 사실상 mandatory 로 본다.
-- 무엇을 검증했고 무엇을 검증하지 못했는지 final report 에 명시한다.
-
-## Harness Verification Baseline
-- architecture 영향이 있는 변경이면 `docs/architecture.md` 기준으로 layer boundary 와 dependency direction 을 점검한다.
-- controller, filter, auth, public endpoint 변경이면 `docs/security.md` 를 점검한다.
-- startup, config, integration, messaging, external adapter 변경이면 `docs/reliability.md` 를 점검한다.
-- 완료 보고 전에는 `docs/quality-score.md` 기준으로 self-check 한다.
+- Run the smallest relevant verification first
+- Run broader verification when shared infrastructure changed
+- If Java code changed, style checks are expected
+- Report what was verified and what was not verified

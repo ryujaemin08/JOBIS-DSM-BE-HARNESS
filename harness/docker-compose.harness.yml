@@ -1,7 +1,6 @@
 services:
   mysql:
     image: mysql:8.0.35
-    container_name: jobis-harness-mysql
     environment:
       MYSQL_ROOT_PASSWORD: 1234
       MYSQL_DATABASE: jobis_harness
@@ -10,7 +9,7 @@ services:
       - --collation-server=utf8mb4_unicode_ci
       - --default-time-zone=+09:00
     ports:
-      - "33306:3306"
+      - "${HARNESS_MYSQL_PORT}:3306"
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -uroot -p1234"]
       interval: 5s
@@ -19,10 +18,9 @@ services:
 
   redis:
     image: redis:7.2-alpine
-    container_name: jobis-harness-redis
     command: ["redis-server", "--requirepass", "asdf"]
     ports:
-      - "36379:6379"
+      - "${HARNESS_REDIS_PORT}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "asdf", "ping"]
       interval: 5s
@@ -30,14 +28,13 @@ services:
       retries: 20
 
   rabbitmq:
-    image: rabbitmq:3.13-management-alpine
-    container_name: jobis-harness-rabbitmq
+    image: rabbitmq:3-management
     environment:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
     ports:
-      - "35672:5672"
-      - "35673:15672"
+      - "${HARNESS_RABBITMQ_PORT}:5672"
+      - "${HARNESS_RABBITMQ_MANAGEMENT_PORT}:15672"
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 5s
@@ -46,9 +43,8 @@ services:
 
   mock-http:
     image: ealen/echo-server:0.9.2
-    container_name: jobis-harness-mock-http
     ports:
-      - "38080:80"
+      - "${HARNESS_MOCK_HTTP_PORT}:80"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost || exit 1"]
       interval: 5s

@@ -61,43 +61,164 @@ node harness/scripts/down.mjs
 Autopilot-style lifecycle orchestration:
 
 ```bash
-node harness/scripts/autopilot-harness.mjs --task "면접일자 수정 API 추가"
+node harness/scripts/autopilot-harness.mjs --task "add interview query api"
 ```
 
 This follows:
-1. 요청 분석
-2. 하네스 필요 여부 판단
-3. 필요하면 up
-4. fixture/scenario/request-contract 확인
-5. 구현 이후 QA loop
-6. 필요하면 SRE loop
-7. 결과 정리
-8. 필요하면 down
+1. analyze request
+2. decide whether harness is required
+3. run `up` when needed
+4. check request contract / fixture / scenario inputs
+5. implement
+6. run `qa-loop`
+7. run `sre-loop` when needed
+8. summarize result
+9. run `down` when needed
 
 ## Public-Safe Data Rule
 
 - Never reuse real local or production JOBIS data.
 - Use only synthetic fixtures.
-- The current seed is in:
-  - `harness/fixtures/mysql/001-login-recruitments-seed.sql`
+- Request-driven runs use:
+  - base fixture identities
+  - dynamic scenario inserts generated from the request contract
+  - optional dataset scaling for latency/performance work
 
-## Scenario Model
+## API Intake Gate
 
-### QA Scenario
+If a developer gives a short request such as:
+
+- `면접일정 조회 api 작성해봐`
+
+the harness should not jump directly to implementation.
+
+It should first require a contract file under `harness/requests/`, then validate that required information exists.
+
+If the task targets an existing API path or resource family, first search for an already-matching request contract under `harness/requests/` and reuse it before asking the developer for more detail.
+
+Template:
+
+- `harness/requests/templates/api-change-request.template.json`
+
+Validate required information:
+
+```bash
+node harness/scripts/intake-api-request.mjs --request harness/requests/<your-request>.json
+```
+
+If fields are missing, this command returns the exact missing questions.
+
+Try to discover an existing matching request contract first:
+
+```bash
+node harness/scripts/find-request-contract.mjs --task "GET /interviews 응답시간을 400ms 이하로 개선해줘"
+```
+
+For an existing API performance task, the preferred flow is:
+
+```bash
+node harness/scripts/find-request-contract.mjs --task "GET /interviews 응답시간을 400ms 이하로 개선해줘"
+node harness/scripts/autopilot-harness.mjs --task "GET /interviews 응답시간을 400ms 이하로 개선해줘" --request harness/requests/query-interviews.json
+```
+
+If the API already satisfies the requested threshold, the harness should return the evidence and stop without forcing a code change.
+
+Generate a first-pass QA scenario from a complete request contract:
+
+```bash
+node harness/scripts/build-qa-scenario.mjs --request harness/requests/<your-request>.json
+```
+
+That generates a scenario under:
+
+- `harness/scenarios/api/generated/`
+
+Generate the request-driven fixture plan:
+
+```bash
+node harness/scripts/build-fixture-plan.mjs --request harness/requests/<your-request>.json --task "improve interview query latency under 400ms"
+```
+
+This generates:
+
+- `harness/reports/generated/fixture-plan.json`
+- `harness/reports/generated/generated-fixture.sql`
+
+The generated SQL is synthetic and built from the request contract. The planner can:
+
+- insert only the minimum tables needed for the API family
+- create target rows that match the request query/body examples
+- create distractor rows for authorization and filtering checks
+- scale dataset size upward for performance-oriented tasks
+
+The runtime supports seed priority:
+
+1. base seed
+2. API bootstrap steps from `harness.bootstrap.steps`
+3. direct SQL fallback when bootstrap is absent or fails
+
+If the request contract contains:
+
+```json
+"harness": {
+  "bootstrap": {
+    "mode": "prefer_api",
+    "fallback_allowed": true,
+    "steps": [
+      {
+        "id": "create_notice",
+        "request": {
+          "method": "POST",
+          "path": "/notices",
+          "headers": {
+            "Authorization": "Bearer {{steps.login_teacher.body.access_token}}",
+            "content-type": "application/json"
+          },
+          "body": {
+            "title": "Harness Notice",
+            "content": "Synthetic bootstrap notice"
+          }
+        },
+        "expect": {
+          "status": 201
+        }
+      }
+    ]
+  }
+}
+```
+
+then `up.mjs` will try those API bootstrap steps first and only use direct SQL fallback when needed.
+
+So the intended flow becomes:
+
+1. short prompt
+2. request contract intake
+3. missing-info questions
+4. complete request contract
+5. scenario generation
+6. implementation
+7. QA loop
+
+## Hard Rule
+
+- If the request contract is incomplete, ask only for the missing required information and stop.
+- Do not implement a new or changed API before the intake gate passes.
+- Do not skip directly to QA or production-code changes when the API contract is underspecified.
+- If no request contract exists yet, the agent must ask for the minimum contract fields explicitly:
+  - path
+  - method
+  - authority
+  - request fields
+  - success response
+  - failure cases
+  - side effects to verify
+
+## QA Scenario Model
 
 Current default:
 
 - `harness/scenarios/api/student-login-recruitments.json`
-
-This file defines:
-
-- sequential HTTP steps
-- request body and headers
-- dependency on prior step outputs
-- expected status
-- required response paths
-- equality assertions
-- minimum item assertions
 
 Run directly:
 
@@ -111,7 +232,7 @@ Or run with retry policy:
 node harness/scripts/qa-loop.mjs
 ```
 
-### SRE Scenario
+## SRE Scenario Model
 
 Current default:
 
@@ -136,83 +257,6 @@ Or run with retry policy:
 ```bash
 node harness/scripts/sre-loop.mjs
 ```
-
-## Feedback Loop Model
-
-### QA Loop
-
-The QA loop does:
-
-1. run scenario
-2. classify failure
-3. retry when appropriate
-4. stop after repeated same-class failure
-5. emit loop report
-
-Outputs:
-
-- `harness/reports/latest/qa-summary.json`
-- `harness/reports/latest/qa-loop-summary.json`
-
-### SRE Loop
-
-The SRE loop does:
-
-1. run health / metrics / latency / log probes
-2. classify failure
-3. retry when appropriate
-4. stop after repeated same-class failure
-5. emit loop report
-
-Outputs:
-
-- `harness/reports/latest/sre-summary.json`
-- `harness/reports/latest/sre-loop-summary.json`
-
-## API Intake Gate
-
-If a developer gives a short request such as:
-
-- "면접일자 수정하는 api 만들어줘"
-
-the harness should not jump directly to QA.
-
-It should first require a contract file under `harness/requests/`, then validate that required information exists.
-
-Template:
-
-- `harness/requests/templates/api-change-request.template.json`
-
-Validate required information:
-
-```bash
-node harness/scripts/intake-api-request.mjs --request harness/requests/<your-request>.json
-```
-
-If fields are missing, this command returns the exact missing questions.
-
-Generate a first-pass QA scenario from a complete request contract:
-
-```bash
-node harness/scripts/build-qa-scenario.mjs --request harness/requests/<your-request>.json
-```
-
-That generates a scenario under:
-
-- `harness/scenarios/api/generated/`
-
-So the intended flow becomes:
-
-1. short prompt
-2. request contract intake
-3. missing-info questions
-4. complete request contract
-5. scenario generation
-6. implementation
-7. QA loop
-
-If the task is short or underspecified, the intake gate is the first stop.
-If the task is runtime-sensitive or API-facing, the autopilot harness wrapper should route the task into QA and optionally SRE automatically.
 
 ## Current Synthetic Test Account
 
