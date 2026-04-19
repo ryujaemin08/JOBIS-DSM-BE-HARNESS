@@ -173,12 +173,13 @@ public record SomeRequest(LocalDate startDate) {}
 // Response — dto/response/*Response.java
 @Getter @AllArgsConstructor
 public class SomeResponse {
-    @JsonProperty("start_date") private final LocalDate startDate;
+    private final LocalDate startDate;  // → "start_date" (전역 SNAKE_CASE 자동 변환)
 
     public static SomeResponse from(List<SomeVO> vos) { ... }
 }
 ```
-- Response 필드는 camelCase 변수명이어도 JSON key 는 `@JsonProperty("snake_case")` 로 명시
+- `application.yml`에 `spring.jackson.property-naming-strategy: SNAKE_CASE` 전역 설정으로 camelCase 필드 → snake_case JSON key 자동 변환
+- application layer DTO 에 `@JsonProperty` 추가 금지 (jackson 의존성 없음)
 - `@RequestParam(name = "snake_case", required = false)` 형태로 query param 수신
 
 ### QueryDSL Conventions

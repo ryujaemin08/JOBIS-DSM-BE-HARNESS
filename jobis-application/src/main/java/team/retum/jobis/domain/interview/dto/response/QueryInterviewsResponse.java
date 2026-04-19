@@ -1,16 +1,19 @@
 package team.retum.jobis.domain.interview.dto.response;
 
+import java.time.LocalDate;
+import java.util.List;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
 import team.retum.jobis.domain.interview.model.Interview;
 import team.retum.jobis.domain.recruitment.model.ProgressType;
 
-import java.time.LocalDate;
-import java.util.List;
-
 @Getter
+@AllArgsConstructor
 public class QueryInterviewsResponse {
 
     private final int totalCount;
+
     private final List<InterviewResponse> interviews;
 
     public QueryInterviewsResponse(List<Interview> interviews) {
@@ -21,7 +24,9 @@ public class QueryInterviewsResponse {
     }
 
     @Getter
+    @Builder
     public static class InterviewResponse {
+
         private final Long id;
         private final ProgressType interviewType;
         private final LocalDate startDate;
