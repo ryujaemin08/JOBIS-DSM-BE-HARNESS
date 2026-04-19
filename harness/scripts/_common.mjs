@@ -394,7 +394,7 @@ export async function waitForDependencies() {
 export async function waitForHealth() {
   const runtimeEnv = readRuntimeEnv();
   const url = `http://localhost:${runtimeEnv.HARNESS_APP_PORT}/actuator/health`;
-  for (let i = 0; i < 300; i += 1) {
+  for (let i = 0; i < 600; i += 1) {
     try {
       const response = await fetch(url);
       if (response.ok) {
