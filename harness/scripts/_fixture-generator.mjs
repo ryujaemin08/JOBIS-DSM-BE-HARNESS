@@ -69,14 +69,18 @@ WHERE teacher_id = ${context.TEACHER_ID};
 DELETE FROM tbl_student
 WHERE student_id IN (${context.STUDENT_ID}, ${context.SECOND_STUDENT_ID});
 
+DELETE FROM tbl_company
+WHERE company_id = ${context.COMPANY_USER_ID};
+
 DELETE FROM tbl_user
-WHERE id IN (${context.STUDENT_ID}, ${context.SECOND_STUDENT_ID}, ${context.TEACHER_ID})
-   OR account_id IN (${sqlString(context.STUDENT_ACCOUNT_ID)}, ${sqlString(context.SECOND_STUDENT_ACCOUNT_ID)}, ${sqlString(context.TEACHER_ACCOUNT_ID)});
+WHERE id IN (${context.STUDENT_ID}, ${context.SECOND_STUDENT_ID}, ${context.TEACHER_ID}, ${context.COMPANY_USER_ID})
+   OR account_id IN (${sqlString(context.STUDENT_ACCOUNT_ID)}, ${sqlString(context.SECOND_STUDENT_ACCOUNT_ID)}, ${sqlString(context.TEACHER_ACCOUNT_ID)}, ${sqlString(context.COMPANY_ACCOUNT_ID)});
 
 INSERT INTO tbl_user (id, created_at, account_id, password, authority, token) VALUES
 (${context.STUDENT_ID}, NOW(), ${sqlString(context.STUDENT_ACCOUNT_ID)}, ${sqlString(context.BCRYPT_PASSWORD)}, 'STUDENT', NULL),
 (${context.SECOND_STUDENT_ID}, NOW(), ${sqlString(context.SECOND_STUDENT_ACCOUNT_ID)}, ${sqlString(context.BCRYPT_PASSWORD)}, 'STUDENT', NULL),
-(${context.TEACHER_ID}, NOW(), ${sqlString(context.TEACHER_ACCOUNT_ID)}, ${sqlString(context.BCRYPT_PASSWORD)}, 'TEACHER', NULL);
+(${context.TEACHER_ID}, NOW(), ${sqlString(context.TEACHER_ACCOUNT_ID)}, ${sqlString(context.BCRYPT_PASSWORD)}, 'TEACHER', NULL),
+(${context.COMPANY_USER_ID}, NOW(), ${sqlString(context.COMPANY_ACCOUNT_ID)}, ${sqlString(context.BCRYPT_PASSWORD)}, 'COMPANY', NULL);
 
 INSERT INTO tbl_student (
     student_id,
@@ -93,6 +97,37 @@ INSERT INTO tbl_student (
 (${context.SECOND_STUDENT_ID}, ${sqlString(context.SECOND_STUDENT_NAME)}, 2, 1, 2, 'WOMAN', 'SOFTWARE_DEVELOP', 'EXTENSION_FILE/default_image.png', ${context.CURRENT_YEAR - 1});
 
 INSERT INTO tbl_teacher (teacher_id) VALUES (${context.TEACHER_ID});
+
+INSERT INTO tbl_company (
+    company_id, name, biz_no, type, is_mou, representative, founded_at, take, workers_count,
+    email, company_introduce, company_logo_url, biz_registration_url, business_area, service_name,
+    attachment_urls, main_address, main_address_detail, main_zip_code, manager_name, manager_phone_no,
+    headquarter, representative_phone_no
+) VALUES (
+    ${context.COMPANY_USER_ID},
+    'HarnessCompany',
+    '1234567890',
+    'PARTICIPATING',
+    1,
+    'HarnessRep',
+    '2020-01-01',
+    12000,
+    25,
+    'harness-company@example.com',
+    'Synthetic company for harness verification.',
+    'LOGO_IMAGE/companydefault.png',
+    NULL,
+    'Software',
+    'HarnessPlatform',
+    NULL,
+    'Daejeon Yuseong-gu 101',
+    'Suite 401',
+    '34141',
+    'HarnessMgr',
+    '01087654321',
+    1,
+    '01012345678'
+);
 
 INSERT INTO tbl_document_number (id, document_number) VALUES (${context.DOCUMENT_NUMBER_ID}, ${sqlString(context.DOCUMENT_NUMBER_VALUE)});
 `.trim();
@@ -146,15 +181,15 @@ function buildInterviewRows({ requestSpec, context, task }) {
       ];
 
   if (method !== "GET" && rows.length === 1) {
-      rows[0] = {
-        ...rows[0],
-        interview_type: bodyFields.interview_type ?? rows[0].interview_type,
-        start_date: requestedDate ?? rows[0].start_date,
-        end_date: requestedEndDate ?? rows[0].end_date,
-        interview_time: limit(bodyFields.interview_time ?? rows[0].interview_time, 8),
-        company_name: limit(bodyFields.company_name ?? rows[0].company_name, 20),
-        location: limit(bodyFields.location ?? rows[0].location, 80),
-      };
+    rows[0] = {
+      ...rows[0],
+      interview_type: bodyFields.interview_type ?? rows[0].interview_type,
+      start_date: requestedDate ?? rows[0].start_date,
+      end_date: requestedEndDate ?? rows[0].end_date,
+      interview_time: limit(bodyFields.interview_time ?? rows[0].interview_time, 8),
+      company_name: limit(bodyFields.company_name ?? rows[0].company_name, 20),
+      location: limit(bodyFields.location ?? rows[0].location, 80),
+    };
   }
 
   while (rows.length < scale) {
@@ -196,7 +231,7 @@ WHERE id IN (${rows.map((row) => row.id).join(", ")});
 
   return {
     family: "interviews",
-    required_tables: ["tbl_user", "tbl_student", "tbl_teacher", "tbl_document_number", "tbl_interview"],
+    required_tables: ["tbl_user", "tbl_student", "tbl_teacher", "tbl_document_number", "tbl_company", "tbl_interview"],
     sql: `${deletes}
 
 INSERT INTO tbl_interview (
@@ -381,98 +416,7 @@ ${recruitAreaCodeSql};`,
   };
 }
 
-function buildCompanyRows({ requestSpec, context, task }) {
-  const responseBody = requestSpec.responses?.success?.body ?? {};
-  const companies = Array.isArray(responseBody.companies) ? responseBody.companies : [];
-  const queryFields = getRequestFieldMap(requestSpec.request?.query_params ?? []);
-  const scale = datasetScaleForTask(task, requestSpec);
-  const requestedName = limit(queryFields.name ?? queryFields.company_name ?? "Harness Company", 50);
-  const requestedType = queryFields.type ?? queryFields.company_type ?? "PARTICIPATING";
-  const requestedRegion = limit(queryFields.region ?? "Daejeon", 50);
-
-  const rows = companies.length > 0
-    ? companies.map((company, index) => ({
-        company_id: Number(company.id ?? company.company_id ?? context.COMPANY_ID + index),
-        name: limit(company.name ?? company.company_name ?? `${requestedName}${index}`, 50),
-        type: company.type ?? company.company_type ?? requestedType,
-        main_address: limit(company.main_address ?? company.address ?? `${requestedRegion} Main ${index}`, 50),
-        main_address_detail: limit(company.main_address_detail ?? `Suite ${index}`, 50),
-        business_area: limit(company.business_area ?? "Software", 30),
-        service_name: limit(company.service_name ?? `HarnessPlatform${index}`, 40),
-      }))
-    : [
-        {
-          company_id: context.COMPANY_ID,
-          name: requestedName,
-          type: requestedType,
-          main_address: `${requestedRegion} Main`,
-          main_address_detail: "Suite 1",
-          business_area: "Software",
-          service_name: "HarnessPlatform",
-        }
-      ];
-
-  while (rows.length < scale) {
-    const index = rows.length;
-    rows.push({
-      company_id: context.COMPANY_ID + index,
-      name: limit(`${requestedName}${index}`, 50),
-      type: index % 2 === 0 ? requestedType : "LEADING",
-      main_address: limit(`${requestedRegion} Main ${index}`, 50),
-      main_address_detail: limit(`Suite ${index}`, 50),
-      business_area: "Software",
-      service_name: limit(`HarnessPlatform${index}`, 40),
-    });
-  }
-
-  return rows;
-}
-
-function buildCompanyFixture({ requestSpec, context, task }) {
-  const rows = buildCompanyRows({ requestSpec, context, task });
-  const companyIds = rows.map((row) => row.company_id).join(", ");
-  const companySql = rows.map((row, index) => `(
-    ${row.company_id},
-    ${sqlString(row.name)},
-    ${sqlString(`22345${String(index).padStart(5, "0")}`)},
-    ${sqlString(row.type)},
-    1,
-    ${sqlString("HarnessRep")},
-    '2020-01-01',
-    12000,
-    25,
-    ${sqlString(`company${index}@example.com`)},
-    ${sqlString("Synthetic company for harness validation.")},
-    'LOGO_IMAGE/companydefault.png',
-    NULL,
-    ${sqlString(row.business_area)},
-    ${sqlString(row.service_name)},
-    NULL,
-    ${sqlString(row.main_address)},
-    ${sqlString(row.main_address_detail)},
-    '34141',
-    ${sqlString("HarnessMgr")},
-    '01087654321',
-    1,
-    '01012345678'
-)`).join(",\n");
-
-  return {
-    family: "companies",
-    required_tables: ["tbl_company"],
-    sql: `DELETE FROM tbl_company WHERE company_id IN (${companyIds});
-
-INSERT INTO tbl_company (
-    company_id, name, biz_no, type, is_mou, representative, founded_at, take, workers_count,
-    email, company_introduce, company_logo_url, biz_registration_url, business_area, service_name,
-    attachment_urls, main_address, main_address_detail, main_zip_code, manager_name, manager_phone_no,
-    headquarter, representative_phone_no
-) VALUES
-${companySql};`,
-  };
-}
-
-function buildNoticeRows({ requestSpec, context, task, table }) {
+function buildNoticeRows({ requestSpec, task, table }) {
   const responseBody = requestSpec.responses?.success?.body ?? {};
   const key = table === "tbl_notice" ? "notices" : "banners";
   const items = Array.isArray(responseBody[key]) ? responseBody[key] : [];
@@ -599,28 +543,15 @@ ${sqlRows};`,
 
 export function buildDynamicScenarioFixture({ requestSpec, context, task }) {
   const family = inferFamily(requestSpec);
-  if (family === "interviews") {
-    return buildInterviewFixture({ requestSpec, context, task });
-  }
-  if (family === "recruitments") {
-    return buildRecruitmentFixture({ requestSpec, context, task });
-  }
-  if (family === "companies") {
-    return buildCompanyFixture({ requestSpec, context, task });
-  }
-  if (family === "notices") {
-    return buildNoticeFixture({ requestSpec, task });
-  }
-  if (family === "banners") {
-    return buildBannerFixture({ requestSpec, task });
-  }
-  if (family === "bugs") {
-    return buildBugFixture({ requestSpec, context, task });
-  }
+  if (family === "interviews") return buildInterviewFixture({ requestSpec, context, task });
+  if (family === "recruitments") return buildRecruitmentFixture({ requestSpec, context, task });
+  if (family === "notices") return buildNoticeFixture({ requestSpec, task });
+  if (family === "banners") return buildBannerFixture({ requestSpec, task });
+  if (family === "bugs") return buildBugFixture({ requestSpec, context, task });
 
   return {
     family: "generic",
-    required_tables: ["tbl_user", "tbl_student", "tbl_teacher", "tbl_document_number"],
+    required_tables: ["tbl_user", "tbl_student", "tbl_teacher", "tbl_document_number", "tbl_company"],
     sql: "",
   };
 }
@@ -636,6 +567,7 @@ export function buildContextSeed({ fixtureKey, requestSpec, now = new Date() }) 
     STUDENT_ID: 10001,
     SECOND_STUDENT_ID: 10002,
     TEACHER_ID: 10003,
+    COMPANY_USER_ID: 10004,
     DOCUMENT_NUMBER_ID: 10011,
     INTERVIEW_ID_1: 11001,
     INTERVIEW_ID_2: 11002,
@@ -648,6 +580,7 @@ export function buildContextSeed({ fixtureKey, requestSpec, now = new Date() }) 
     STUDENT_ACCOUNT_ID: "harness.student.01",
     SECOND_STUDENT_ACCOUNT_ID: "harness.student.02",
     TEACHER_ACCOUNT_ID: "harness.teacher.01",
+    COMPANY_ACCOUNT_ID: "harness.company.01",
     STUDENT_NAME: "HStudent1",
     SECOND_STUDENT_NAME: "HStudent2",
     DOCUMENT_NUMBER_VALUE: `D${String(year).slice(-2)}001`,

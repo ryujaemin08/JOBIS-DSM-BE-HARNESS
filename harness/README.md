@@ -4,25 +4,24 @@ This harness is a local-only, public-safe runtime for validating JOBIS behavior 
 
 - synthetic fixtures
 - Docker-managed dependencies
-- scenario-driven QA and SRE loops
+- request-contract-driven QA and SRE loops
 - machine-readable reports
-- API-request intake gating for underspecified prompts
+- intake gating for underspecified API requests
 
-It stays outside the existing `.java` product code path.
+It is designed so a fresh agent can start from repo root, read this file plus `docs/architecture.md` and `docs/development.md`, and execute the same flow without hidden session context.
 
 ## Goal
 
-The harness should not be just a fixed smoke script.
+The harness must not default to fixed smoke scenarios.
 
-It should support:
+It must:
 
-- QA loop
-  - validate whether an added or changed API works against explicit requirements
-- SRE loop
-  - collect health, log, metrics, and latency evidence
-  - support checks such as "this API must stay under 400ms"
-- API intake gate
-  - if the request is too short, block scenario generation until required contract information exists
+- decide whether harness validation is required
+- validate request contract completeness before implementation
+- fail fast when request contract, `SecurityConfig`, `WebAdapter`, or fixture are inconsistent
+- generate QA and SRE scenarios dynamically from the target request contract
+- use real HTTP calls for validation
+- record endpoint, authority, token bootstrap path, and assertion results in reports
 
 ## Runtime Surface
 
@@ -32,240 +31,191 @@ It should support:
 - lightweight local mock endpoint: Docker
 - app: host-side `bootRun`
 
-## Cross-Platform Commands
+## Canonical Flow
 
-Start dependencies, app, and seed:
-
-```bash
-node harness/scripts/up.mjs
-```
-
-Run the QA feedback loop:
-
-```bash
-node harness/scripts/qa-loop.mjs
-```
-
-Run the SRE feedback loop:
-
-```bash
-node harness/scripts/sre-loop.mjs
-```
-
-Stop app and dependencies:
-
-```bash
-node harness/scripts/down.mjs
-```
-
-Autopilot-style lifecycle orchestration:
-
-```bash
-node harness/scripts/autopilot-harness.mjs --task "add interview query api"
-```
-
-This follows:
 1. analyze request
 2. decide whether harness is required
-3. run `up` when needed
+3. run `node harness/scripts/03-env/up.mjs` when needed
 4. check request contract / fixture / scenario inputs
 5. implement
-6. run `qa-loop`
-7. run `sre-loop` when needed
+6. run `node harness/scripts/04-qa/qa-loop.mjs --request <path>`  
+   If `--request` is omitted, the loop auto-selects changed request contracts under `harness/requests/generated/`.
+7. run `node harness/scripts/05-sre/sre-loop.mjs --request <path>` only when the request is runtime-sensitive or has explicit SRE expectations
 8. summarize result
-9. run `down` when needed
+9. run `node harness/scripts/03-env/down.mjs` when needed
+
+Once intake passes and the request contract is complete, the agent must continue through steps 4-7 without asking the user for more prompts unless there is an environment blocker that prevents the harness from running at all.
 
 ## Public-Safe Data Rule
 
 - Never reuse real local or production JOBIS data.
 - Use only synthetic fixtures.
-- Request-driven runs use:
-  - base fixture identities
-  - dynamic scenario inserts generated from the request contract
-  - optional dataset scaling for latency/performance work
+- Harness seed data is generated dynamically per request contract and written to `harness/fixtures/generated/`.
 
-## API Intake Gate
+## Request Contract
 
-If a developer gives a short request such as:
+Every new or changed API must have a contract file under `harness/requests/generated/`.
 
-- `면접일정 조회 api 작성해봐`
+Format reference: `harness/requests/sample-short-request.json`
 
-the harness should not jump directly to implementation.
+Minimum required sections:
 
-It should first require a contract file under `harness/requests/`, then validate that required information exists.
+- `name`
+- `summary`
+- `method`
+- `path`
+- `purpose`
+- `authority`
+- `request`
+- `responses`
+- `qa_expectations`
+- `harness.fixtures.seed_script`
 
-If the task targets an existing API path or resource family, first search for an already-matching request contract under `harness/requests/` and reuse it before asking the developer for more detail.
-
-Template:
-
-- `harness/requests/templates/api-change-request.template.json`
-
-Validate required information:
-
-```bash
-node harness/scripts/intake-api-request.mjs --request harness/requests/<your-request>.json
-```
-
-If fields are missing, this command returns the exact missing questions.
-
-Try to discover an existing matching request contract first:
+Validate completeness:
 
 ```bash
-node harness/scripts/find-request-contract.mjs --task "GET /interviews 응답시간을 400ms 이하로 개선해줘"
+node harness/scripts/01-intake/intake-api-request.mjs --request harness/requests/generated/<your-request>.json
 ```
 
-For an existing API performance task, the preferred flow is:
+If this fails, stop and ask only for the missing required information.
+
+## Dynamic QA Generation
+
+Generate a QA scenario skeleton from a complete contract:
 
 ```bash
-node harness/scripts/find-request-contract.mjs --task "GET /interviews 응답시간을 400ms 이하로 개선해줘"
-node harness/scripts/autopilot-harness.mjs --task "GET /interviews 응답시간을 400ms 이하로 개선해줘" --request harness/requests/query-interviews.json
+node harness/scripts/04-qa/build-qa-scenario.mjs --request harness/requests/generated/<your-request>.json
 ```
 
-If the API already satisfies the requested threshold, the harness should return the evidence and stop without forcing a code change.
+Generated scenarios are written under:
 
-Generate a first-pass QA scenario from a complete request contract:
+- `harness/scenarios/generated/api/`
+
+The generator checks only implementation-independent prerequisites:
+
+1. request contract completeness
+2. fixture metadata
+3. auth bootstrap feasibility
+
+It does not require the API to already exist in Java code.
+
+Implementation-dependent checks are deferred to `qa-loop`.
+
+Examples of automatic failure during generation:
+
+- `fixture_failure:*`
+- `intake_failure:*`
+
+## Dynamic SRE Generation
+
+SRE is not the default for every API.
+
+It should run only when:
+
+- the request is performance-sensitive
+- the request explicitly declares SRE expectations
+
+Generate an SRE scenario skeleton from a request contract:
 
 ```bash
-node harness/scripts/build-qa-scenario.mjs --request harness/requests/<your-request>.json
+node harness/scripts/05-sre/build-sre-scenario.mjs --request harness/requests/generated/<your-request>.json
 ```
 
-That generates a scenario under:
+Generated scenarios are written under:
 
-- `harness/scenarios/api/generated/`
+- `harness/scenarios/generated/reliability/`
 
-Generate the request-driven fixture plan:
+SRE generation checks only implementation-independent prerequisites.  
+Runtime contract mismatch checks happen in `sre-loop`.
 
-```bash
-node harness/scripts/build-fixture-plan.mjs --request harness/requests/<your-request>.json --task "improve interview query latency under 400ms"
-```
-
-This generates:
-
-- `harness/reports/generated/fixture-plan.json`
-- `harness/reports/generated/generated-fixture.sql`
-
-The generated SQL is synthetic and built from the request contract. The planner can:
-
-- insert only the minimum tables needed for the API family
-- create target rows that match the request query/body examples
-- create distractor rows for authorization and filtering checks
-- scale dataset size upward for performance-oriented tasks
-
-The runtime supports seed priority:
-
-1. base seed
-2. API bootstrap steps from `harness.bootstrap.steps`
-3. direct SQL fallback when bootstrap is absent or fails
-
-If the request contract contains:
-
-```json
-"harness": {
-  "bootstrap": {
-    "mode": "prefer_api",
-    "fallback_allowed": true,
-    "steps": [
-      {
-        "id": "create_notice",
-        "request": {
-          "method": "POST",
-          "path": "/notices",
-          "headers": {
-            "Authorization": "Bearer {{steps.login_teacher.body.access_token}}",
-            "content-type": "application/json"
-          },
-          "body": {
-            "title": "Harness Notice",
-            "content": "Synthetic bootstrap notice"
-          }
-        },
-        "expect": {
-          "status": 201
-        }
-      }
-    ]
-  }
-}
-```
-
-then `up.mjs` will try those API bootstrap steps first and only use direct SQL fallback when needed.
-
-So the intended flow becomes:
-
-1. short prompt
-2. request contract intake
-3. missing-info questions
-4. complete request contract
-5. scenario generation
-6. implementation
-7. QA loop
-
-## Hard Rule
-
-- If the request contract is incomplete, ask only for the missing required information and stop.
-- Do not implement a new or changed API before the intake gate passes.
-- Do not skip directly to QA or production-code changes when the API contract is underspecified.
-- If no request contract exists yet, the agent must ask for the minimum contract fields explicitly:
-  - path
-  - method
-  - authority
-  - request fields
-  - success response
-  - failure cases
-  - side effects to verify
-
-## QA Scenario Model
-
-Current default:
-
-- `harness/scenarios/api/student-login-recruitments.json`
-
-Run directly:
-
-```bash
-node harness/scripts/run-qa.mjs --scenario harness/scenarios/api/student-login-recruitments.json
-```
-
-Or run with retry policy:
-
-```bash
-node harness/scripts/qa-loop.mjs
-```
-
-## SRE Scenario Model
-
-Current default:
-
-- `harness/scenarios/reliability/startup-health.json`
-
-This file defines probes for:
+SRE validation uses:
 
 - `/actuator/health`
 - `/actuator/metrics`
 - `/actuator/prometheus`
-- post-startup log signal
-- repeated latency sampling on a target API
+- startup logs
+- latency samples and p95 threshold
 
-Run directly:
+If the latency target is missing or not met, SRE must fail.
 
-```bash
-node harness/scripts/run-sre.mjs --scenario harness/scenarios/reliability/startup-health.json
-```
+## QA Loop
 
-Or run with retry policy:
+Run:
 
 ```bash
-node harness/scripts/sre-loop.mjs
+node harness/scripts/04-qa/qa-loop.mjs --request harness/requests/generated/<your-request>.json
 ```
 
-## Current Synthetic Test Account
+Behavior:
 
-- account id: `harness.student.01`
-- password: `HarnessPass123!`
-- authority: `STUDENT`
+- dynamically generates a scenario skeleton from the request contract
+- runs architecture guard derived from `docs/architecture.md`
+- before making HTTP calls, verifies request contract vs `SecurityConfig`
+- before making HTTP calls, verifies request contract vs `WebAdapter`
+- executes real HTTP calls
+- auto-builds auth bootstrap only when `Authorization` is required
+- supports `STUDENT`, `TEACHER`, `COMPANY` bootstrap through `/users/login`
+- records per-step endpoint, authority, token source, status, and duration
+
+The QA loop must not rely on a fixed scenario such as `student-login-recruitments`.
+
+## SRE Loop
+
+Run:
+
+```bash
+node harness/scripts/05-sre/sre-loop.mjs --request harness/requests/generated/<your-request>.json
+```
+
+Behavior:
+
+- dynamically generates a scenario skeleton only for runtime-sensitive contracts
+- runs architecture guard derived from `docs/architecture.md`
+- before probing runtime, verifies request contract vs `SecurityConfig`
+- before probing runtime, verifies request contract vs `WebAdapter`
+- uses the same authority-aware auth bootstrap when needed
+- records metrics/health/prometheus/latency/log evidence
+- fails when p95 exceeds the request contract target
+
+## Failure Rules
+
+The harness must fail instead of silently passing when any of these happen:
+
+- request contract is incomplete
+- request contract does not match `SecurityConfig` during QA/SRE execution
+- request contract does not match `WebAdapter` during QA/SRE execution
+- fixture metadata is missing
+- required fixture fragments are absent
+- the contract requires real data but the response is empty
+- SRE target is missing or not met
+
+Mismatch handling rule:
+
+- implementation-independent failures such as intake, fixture, and scenario generation stop immediately
+- implementation-dependent failures such as `contract_security_mismatch`, `contract_web_mismatch`, startup/configuration errors, or `5xx` responses must fail fast, write a machine-readable recovery block, and continue the same stage after code fixes
+- recoverable failures must include `continue_without_user: true`, `failed_stage`, `next_action`, and an exact `rerun_command`
+- only environment blockers such as missing Docker, unreachable Docker daemon, or non-JOBIS process port conflicts may stop the workflow without automatic continuation
+
+## Reports
+
+Latest reports are written under:
+
+- `harness/reports/generated/qa-summary.json`
+- `harness/reports/generated/qa-loop-summary.json`
+- `harness/reports/generated/sre-summary.json`
+- `harness/reports/generated/sre-loop-summary.json`
+
+These reports should include:
+
+- request contract path
+- called endpoint
+- used authority
+- token acquisition endpoint
+- assertion/probe result
+- latency evidence when applicable
 
 ## Current Limitation
 
-- `HARNESS_FCM_JSON={}` means Firebase initialization may log a harmless startup parse error.
-- The SRE loop evaluates post-startup logs and ignores known schema-generation noise.
-- This harness is local-only; it does not validate EC2 or deployed runtime yet.
+- If the request contract describes an API that does not exist in current Java code yet, preflight generation still succeeds but QA/SRE runtime validation fails fast with a contract mismatch.
+- `HARNESS_FCM_JSON={}` may still emit harmless startup noise.
+- This harness is local-only; it does not validate deployed infrastructure.

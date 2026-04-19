@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const repoRoot = path.resolve(__dirname, "..", "..");
+const repoRoot = path.resolve(__dirname, "..", "..", "..");
 
 const argIndex = process.argv.indexOf("--request");
 if (argIndex < 0 || !process.argv[argIndex + 1]) {
@@ -23,9 +23,13 @@ const requiredChecks = [
   { key: "path", question: "endpoint path 가 필요합니다." },
   { key: "purpose", question: "비즈니스 목적이 필요합니다." },
   { key: "authority", question: "누가 호출 가능한지 authority 정의가 필요합니다." },
+  { key: "request.query_params", question: "query param 정의가 없으면 빈 배열이라도 명시해야 합니다.", allowEmptyArray: true },
+  { key: "request.body.fields", question: "request body field 정의가 없으면 빈 배열이라도 명시해야 합니다.", allowEmptyArray: true },
   { key: "responses.success.status", question: "성공 status code 가 필요합니다." },
   { key: "responses.failures", question: "대표 failure case 가 필요합니다." },
-  { key: "qa_expectations.success_assertions", question: "성공 시 무엇을 검증해야 하는지 필요합니다." }
+  { key: "qa_expectations.success_assertions", question: "성공 시 무엇을 검증해야 하는지 구조화된 assertion 이 필요합니다." },
+  { key: "qa_expectations.negative_assertions", question: "실패 케이스 검증을 위한 구조화된 negative assertion 이 필요합니다.", allowEmptyArray: true },
+  { key: "harness.fixtures.seed_script", question: "계약 검증에 사용할 synthetic fixture seed script 경로가 필요합니다." }
 ];
 
 function getPath(obj, dottedPath) {
@@ -41,26 +45,13 @@ for (const check of requiredChecks) {
   const isMissing =
     value == null ||
     value === "" ||
-    (Array.isArray(value) && value.length === 0);
+    (Array.isArray(value) && value.length === 0 && !check.allowEmptyArray);
   if (isMissing) {
     missing.push({
       field: check.key,
       question: check.question
     });
   }
-}
-
-const requestShape =
-  spec.request?.path_params?.length ||
-  spec.request?.query_params?.length ||
-  spec.request?.headers?.length ||
-  spec.request?.body?.fields?.length;
-
-if (!requestShape) {
-  missing.push({
-    field: "request",
-    question: "request 입력 정의가 필요합니다. path/query/header/body 중 하나 이상을 명시해 주세요."
-  });
 }
 
 const output = {

@@ -59,7 +59,11 @@ logs/
 .sisyphus/**/*.md
 
 ### Harness Runtime ###
+harness/requests/generated/*
+harness/fixtures/generated/*
 harness/reports/generated/*
+harness/scenarios/generated/*
+!harness/requests/generated/.gitkeep
+!harness/fixtures/generated/.gitkeep
 !harness/reports/generated/.gitkeep
-harness/scenarios/api/generated/*
-harness/scenarios/reliability/generated/*
+!harness/scenarios/generated/.gitkeep
