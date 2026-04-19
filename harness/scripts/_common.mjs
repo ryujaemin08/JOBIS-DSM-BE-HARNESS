@@ -441,7 +441,7 @@ WHERE table_schema = 'jobis_harness'
 export async function getGitSha() {
   const result = await spawnLogged("git", ["rev-parse", "--short", "HEAD"]);
   if (result.code !== 0) {
-    throw new Error(result.stderr || result.stdout || "Failed to read git sha");
+    return "unknown";
   }
   return result.stdout.trim();
 }
