@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import path from "node:path";
 import {
   ensureReportDir,
   dockerCompose,
@@ -11,13 +12,14 @@ import {
   writeRuntimeEnv,
   harnessEnv,
   docker,
-  composeProjectName,
+  containerNames,
   fixturePlanFile,
   readFixturePlan,
   getBaseUrl,
   httpRequest,
   assertResponse,
-} from "./_common.mjs";
+  repoRoot,
+} from "../_common.mjs";
 
 ensureReportDir();
 await stopExistingHarnessResources();
@@ -45,15 +47,15 @@ const fixturePlanPath = fixturePlanArgIndex >= 0
   ? process.argv[fixturePlanArgIndex + 1]
   : fixturePlanFile;
 const fixturePlan = readFixturePlan(fixturePlanPath);
-const requiredTables = fixturePlan?.required_tables ?? ["tbl_user", "tbl_student", "tbl_teacher", "tbl_document_number", "tbl_recruitment", "tbl_interview"];
+const requiredTables = fixturePlan?.required_tables ?? ["tbl_user", "tbl_student", "tbl_teacher", "tbl_company", "tbl_document_number", "tbl_interview"];
 await waitForTables(requiredTables);
 
 async function applySeedSql(seedPath) {
   if (!seedPath) return;
-  const sqlPath = new URL(`../../${seedPath.replace(/\\/g, "/")}`, import.meta.url);
+  const sqlPath = path.resolve(repoRoot, seedPath);
   const sql = fs.readFileSync(sqlPath, "utf8");
   const result = await docker(
-    ["exec", "-i", `${composeProjectName}-mysql-1`, "mysql", "-uroot", "-p1234", "-D", "jobis_harness"],
+    ["exec", "-i", containerNames.mysql, "mysql", "-uroot", "-p1234", "-D", "jobis_harness"],
     sql,
   );
   if (result.code !== 0) {
@@ -91,21 +93,17 @@ const shouldApplyFallbackSeed =
   bootstrapResult.used_fallback;
 
 if (shouldApplyFallbackSeed) {
-  if (fixturePlan?.generated_sql_path) {
-    await applySeedSql(fixturePlan.generated_sql_path);
-  } else if (!fixturePlan) {
-    await applySeedSql("harness/fixtures/mysql/001-login-recruitments-seed.sql");
-  }
+  await applySeedSql(fixturePlan?.generated_sql_path);
 }
 
 console.log(JSON.stringify({
   success: true,
-  fixture_key: fixturePlan?.fixture_key ?? "legacy-default",
+  fixture_key: fixturePlan?.fixture_key ?? "no-plan",
   bootstrap: bootstrapResult,
   app_port: runtimeEnv.HARNESS_APP_PORT,
   mysql_port: runtimeEnv.HARNESS_MYSQL_PORT,
   redis_port: runtimeEnv.HARNESS_REDIS_PORT,
   rabbitmq_port: runtimeEnv.HARNESS_RABBITMQ_PORT,
   rabbitmq_management_port: runtimeEnv.HARNESS_RABBITMQ_MANAGEMENT_PORT,
-  mock_http_port: runtimeEnv.HARNESS_MOCK_HTTP_PORT
+  mock_http_port: runtimeEnv.HARNESS_MOCK_HTTP_PORT,
 }, null, 2));

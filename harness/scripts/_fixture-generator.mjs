@@ -650,7 +650,7 @@ export function buildContextSeed({ fixtureKey, requestSpec, now = new Date() }) 
     TEACHER_ACCOUNT_ID: "harness.teacher.01",
     STUDENT_NAME: "HStudent1",
     SECOND_STUDENT_NAME: "HStudent2",
-    DOCUMENT_NUMBER_VALUE: `DOC${String(year).slice(-2)}01`,
+    DOCUMENT_NUMBER_VALUE: `D${String(year).slice(-2)}001`,
     BCRYPT_PASSWORD: "$2a$10$fK42cS5/08WVME6T9J7jmuCa9081s/XKqWQ18tWY4ERmjSG4V1f0a",
   };
 }
