@@ -372,7 +372,7 @@ export async function waitForDependencies() {
 
   for (const dependency of dependencies) {
     let ready = false;
-    for (let i = 0; i < 90; i += 1) {
+    for (let i = 0; i < 150; i += 1) {
       if (dependency.requireHealth) {
         const health = await getDockerHealth(dependency.name);
         if (["healthy", "none"].includes(health)) {
