@@ -10,6 +10,8 @@ This harness is a local-only, public-safe runtime for validating JOBIS behavior 
 
 It is designed so a fresh agent can start from repo root, read this file plus `docs/architecture.md` and `docs/development.md`, and execute the same flow without hidden session context.
 
+For agent completion rules and evaluator pass/fail criteria, read `harness/HARNESS_GUIDE.md` before changing API, runtime, or performance-sensitive behavior.
+
 ## Goal
 
 The harness must not default to fixed smoke scenarios.
