@@ -68,4 +68,29 @@ emoji :: (#issue) title
 - branch without issue number
 - commit with a body
 - commit using an issue number that does not match the current branch
+
+## Push Remote Routing
+- Never push unless the user explicitly asks you to push.
+- Before every push, read this file and follow the remote routing rules.
+- Inspect the branch commits before pushing.
+- If the branch commits contain harness-related changes, push to the `harness` remote.
+- Harness-related changes include files under `harness/`, `.codex/`, `.omx/`, `AGENTS.md`, `docs/git-workflow.md`, or docs that describe harness behavior.
+- If the branch commits do not contain harness-related changes, push to the `origin` remote.
+- Do not push harness-related changes to `origin`.
+- Do not push normal upstream repository work to `harness`.
+
+## Push Commands
+```text
+git push harness <branch-name>
+git push origin <branch-name>
+```
+
+## Pre-push Hook Requirement
+- A local `pre-push` hook must enforce this workflow before allowing push.
+- If harness-related changes are being pushed to a remote other than `harness`, the hook must fail.
+- If the `harness` remote is missing, add it before pushing harness-related work:
+
+```text
+git remote add harness https://github.com/ryujaemin08/JOBIS-DSM-BE-HARNESS.git
+```
 - `fix :: (#1129) ...` 같은 type 문자열 기반 커밋

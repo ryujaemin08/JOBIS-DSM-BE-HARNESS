@@ -1,223 +1,96 @@
-# JOBIS Local Harness
+# JOBIS 로컬 하네스
 
-This harness is a local-only, public-safe runtime for validating JOBIS behavior with:
+이 하네스는 JOBIS API 변경을 로컬에서 확인하기 위한 문서 기반 실행 절차입니다.
 
-- synthetic fixtures
-- Docker-managed dependencies
-- request-contract-driven QA and SRE loops
-- machine-readable reports
-- intake gating for underspecified API requests
+이전 구조처럼 JavaScript 스크립트를 실행하지 않습니다. 에이전트와 개발자는 `harness/runbooks/`의 Markdown 문서를 읽고, 문서에 적힌 순서와 명령어를 직접 실행합니다.
 
-It is designed so a fresh agent can start from repo root, read this file plus `docs/architecture.md` and `docs/development.md`, and execute the same flow without hidden session context.
+## 목표
 
-For agent completion rules and evaluator pass/fail criteria, read `harness/HARNESS_GUIDE.md` before changing API, runtime, or performance-sensitive behavior.
+- 새 API 또는 변경된 API가 request contract와 맞는지 확인한다.
+- 실제 앱을 Docker 의존성과 함께 띄운 뒤 HTTP 요청으로 QA를 수행한다.
+- latency, health, metrics 같은 runtime 요구가 있을 때만 SRE 절차를 수행한다.
+- 실제 데이터나 운영 데이터를 쓰지 않고 synthetic fixture만 사용한다.
+- 결과는 `harness/reports/generated/` 아래에 JSON 또는 실행 로그로 남긴다.
+- 코드 수정 후 커밋 전에는 QA/SRE 필요 여부와 관계없이 Gradle build/test를 반드시 수행한다.
 
-## Goal
+## 폴더 역할
 
-The harness must not default to fixed smoke scenarios.
-
-It must:
-
-- decide whether harness validation is required
-- validate request contract completeness before implementation
-- fail fast when request contract, `SecurityConfig`, `WebAdapter`, or fixture are inconsistent
-- generate QA and SRE scenarios dynamically from the target request contract
-- use real HTTP calls for validation
-- record endpoint, authority, token bootstrap path, and assertion results in reports
-
-## Runtime Surface
-
-- MySQL: Docker
-- Redis: Docker
-- RabbitMQ: Docker
-- lightweight local mock endpoint: Docker
-- app: host-side `bootRun`
-
-## Canonical Flow
-
-1. analyze request
-2. decide whether harness is required
-3. run `node harness/scripts/03-env/up.mjs` when needed
-4. check request contract / fixture / scenario inputs
-5. implement
-6. run `node harness/scripts/04-qa/qa-loop.mjs --request <path>`  
-   If `--request` is omitted, the loop auto-selects changed request contracts under `harness/requests/generated/`.
-7. run `node harness/scripts/05-sre/sre-loop.mjs --request <path>` only when the request is runtime-sensitive or has explicit SRE expectations
-8. summarize result
-9. run `node harness/scripts/03-env/down.mjs` when needed
-
-Once intake passes and the request contract is complete, the agent must continue through steps 4-7 without asking the user for more prompts unless there is an environment blocker that prevents the harness from running at all.
-
-## Public-Safe Data Rule
-
-- Never reuse real local or production JOBIS data.
-- Use only synthetic fixtures.
-- Harness seed data is generated dynamically per request contract and written to `harness/fixtures/generated/`.
-
-## Request Contract
-
-Every new or changed API must have a contract file under `harness/requests/generated/`.
-
-Format reference: `harness/requests/sample-short-request.json`
-
-Minimum required sections:
-
-- `name`
-- `summary`
-- `method`
-- `path`
-- `purpose`
-- `authority`
-- `request`
-- `responses`
-- `qa_expectations`
-- `harness.fixtures.seed_script`
-
-Validate completeness:
-
-```bash
-node harness/scripts/01-intake/intake-api-request.mjs --request harness/requests/generated/<your-request>.json
+```text
+harness/
+  README.md
+  HARNESS_GUIDE.md
+  runbooks/
+    01-intake.md
+    02-fixture-plan.md
+    03-env-up.md
+    04-qa.md
+    05-sre.md
+    06-env-down.md
+    07-build-before-commit.md
+    autopilot.md
+    check-architecture.md
+  requests/
+  fixtures/
+  scenarios/
+  reports/
 ```
 
-If this fails, stop and ask only for the missing required information.
+## 기본 실행 순서
 
-## Dynamic QA Generation
+1. `harness/runbooks/autopilot.md`를 읽고 하네스가 필요한 작업인지 판단한다.
+2. API 작업이면 `harness/runbooks/01-intake.md`에 따라 request contract를 준비한다.
+3. fixture가 필요하면 `harness/runbooks/02-fixture-plan.md`에 따라 synthetic fixture를 준비한다.
+4. HTTP 검증이 필요하면 `harness/runbooks/03-env-up.md`에 따라 Docker 의존성과 앱을 띄운다.
+5. API 동작 검증은 `harness/runbooks/04-qa.md`에 따라 수행한다.
+6. latency 또는 runtime 요구가 있을 때만 `harness/runbooks/05-sre.md`를 수행한다.
+7. 시작한 환경은 `harness/runbooks/06-env-down.md`에 따라 종료한다.
+8. 코드 변경 후 커밋 전에는 항상 `harness/runbooks/07-build-before-commit.md`를 수행한다.
 
-Generate a QA scenario skeleton from a complete contract:
+## QA 실행 조건
 
-```bash
-node harness/scripts/04-qa/build-qa-scenario.mjs --request harness/requests/generated/<your-request>.json
-```
+QA는 다음 작업에서 필요합니다.
 
-Generated scenarios are written under:
+- 새 API 추가
+- 기존 API request/response 변경
+- 권한, JWT, SecurityConfig 변경
+- WebAdapter, DTO, query parameter, path parameter 변경
+- DB query 결과가 API response에 영향을 주는 변경
 
-- `harness/scenarios/generated/api/`
+문서 수정만 한 경우 QA는 생략할 수 있습니다. 단, 최종 보고에 생략 이유를 적어야 합니다.
 
-The generator checks only implementation-independent prerequisites:
+## SRE 실행 조건
 
-1. request contract completeness
-2. fixture metadata
-3. auth bootstrap feasibility
+SRE는 기본값이 아닙니다. 다음 조건에서만 실행합니다.
 
-It does not require the API to already exist in Java code.
+- 사용자가 `400ms` 같은 latency 기준을 제시한 경우
+- health, metrics, prometheus, startup, log, timeout 요구가 있는 경우
+- performance 개선 작업인 경우
+- runtime 설정이나 Docker/env 변경이 있는 경우
 
-Implementation-dependent checks are deferred to `qa-loop`.
+SRE가 필요 없는 API 작업이면 `04-qa.md`까지만 수행하고, `07-build-before-commit.md`는 여전히 수행합니다.
 
-Examples of automatic failure during generation:
+## 데이터 규칙
 
-- `fixture_failure:*`
-- `intake_failure:*`
+- 운영 DB, 로컬 개인 DB, 실제 사용자 데이터를 사용하지 않습니다.
+- fixture는 synthetic data만 사용합니다.
+- seed SQL은 `harness/fixtures/generated/` 또는 request contract에 명시된 경로에 둡니다.
+- fixture를 넣기 전에는 삭제 대상 ID와 INSERT 대상 table을 문서로 확인합니다.
 
-## Dynamic SRE Generation
+## 완료 증거
 
-SRE is not the default for every API.
+최종 답변에는 다음을 포함해야 합니다.
 
-It should run only when:
+- 사용한 request contract 경로
+- QA 필요 여부와 결과
+- SRE 필요 여부와 결과
+- 앱을 띄운 명령어와 health check 결과
+- 실행한 curl 또는 HTTP 요청
+- 실행한 Gradle build/test 명령어
+- 실패했거나 실행하지 못한 명령어와 이유
+- 남은 위험
 
-- the request is performance-sensitive
-- the request explicitly declares SRE expectations
+## 한계
 
-Generate an SRE scenario skeleton from a request contract:
-
-```bash
-node harness/scripts/05-sre/build-sre-scenario.mjs --request harness/requests/generated/<your-request>.json
-```
-
-Generated scenarios are written under:
-
-- `harness/scenarios/generated/reliability/`
-
-SRE generation checks only implementation-independent prerequisites.  
-Runtime contract mismatch checks happen in `sre-loop`.
-
-SRE validation uses:
-
-- `/actuator/health`
-- `/actuator/metrics`
-- `/actuator/prometheus`
-- startup logs
-- latency samples and p95 threshold
-
-If the latency target is missing or not met, SRE must fail.
-
-## QA Loop
-
-Run:
-
-```bash
-node harness/scripts/04-qa/qa-loop.mjs --request harness/requests/generated/<your-request>.json
-```
-
-Behavior:
-
-- dynamically generates a scenario skeleton from the request contract
-- runs architecture guard derived from `docs/architecture.md`
-- before making HTTP calls, verifies request contract vs `SecurityConfig`
-- before making HTTP calls, verifies request contract vs `WebAdapter`
-- executes real HTTP calls
-- auto-builds auth bootstrap only when `Authorization` is required
-- supports `STUDENT`, `TEACHER`, `COMPANY` bootstrap through `/users/login`
-- records per-step endpoint, authority, token source, status, and duration
-
-The QA loop must not rely on a fixed scenario such as `student-login-recruitments`.
-
-## SRE Loop
-
-Run:
-
-```bash
-node harness/scripts/05-sre/sre-loop.mjs --request harness/requests/generated/<your-request>.json
-```
-
-Behavior:
-
-- dynamically generates a scenario skeleton only for runtime-sensitive contracts
-- runs architecture guard derived from `docs/architecture.md`
-- before probing runtime, verifies request contract vs `SecurityConfig`
-- before probing runtime, verifies request contract vs `WebAdapter`
-- uses the same authority-aware auth bootstrap when needed
-- records metrics/health/prometheus/latency/log evidence
-- fails when p95 exceeds the request contract target
-
-## Failure Rules
-
-The harness must fail instead of silently passing when any of these happen:
-
-- request contract is incomplete
-- request contract does not match `SecurityConfig` during QA/SRE execution
-- request contract does not match `WebAdapter` during QA/SRE execution
-- fixture metadata is missing
-- required fixture fragments are absent
-- the contract requires real data but the response is empty
-- SRE target is missing or not met
-
-Mismatch handling rule:
-
-- implementation-independent failures such as intake, fixture, and scenario generation stop immediately
-- implementation-dependent failures such as `contract_security_mismatch`, `contract_web_mismatch`, startup/configuration errors, or `5xx` responses must fail fast, write a machine-readable recovery block, and continue the same stage after code fixes
-- recoverable failures must include `continue_without_user: true`, `failed_stage`, `next_action`, and an exact `rerun_command`
-- only environment blockers such as missing Docker, unreachable Docker daemon, or non-JOBIS process port conflicts may stop the workflow without automatic continuation
-
-## Reports
-
-Latest reports are written under:
-
-- `harness/reports/generated/qa-summary.json`
-- `harness/reports/generated/qa-loop-summary.json`
-- `harness/reports/generated/sre-summary.json`
-- `harness/reports/generated/sre-loop-summary.json`
-
-These reports should include:
-
-- request contract path
-- called endpoint
-- used authority
-- token acquisition endpoint
-- assertion/probe result
-- latency evidence when applicable
-
-## Current Limitation
-
-- If the request contract describes an API that does not exist in current Java code yet, preflight generation still succeeds but QA/SRE runtime validation fails fast with a contract mismatch.
-- `HARNESS_FCM_JSON={}` may still emit harmless startup noise.
-- This harness is local-only; it does not validate deployed infrastructure.
+- 이 구조는 문서 기반 runbook입니다. 자동 스크립트처럼 pass/fail을 계산하지 않습니다.
+- 강제성은 에이전트가 문서를 따르는 것과 Git hook/CI 검증에 의존합니다.
+- 문서 절차를 따르지 않은 수동 주장만으로는 QA, SRE, latency 충족을 인정하지 않습니다.

@@ -21,3 +21,8 @@
 
 ## Agent Use
 - [Agent Guide](./agent-guide.md)
+
+## Harness
+- [Harness README](../harness/README.md)
+- [Harness Guide](../harness/HARNESS_GUIDE.md)
+- [Harness Runbooks](../harness/runbooks/autopilot.md)
