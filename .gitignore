@@ -42,7 +42,8 @@ sonar-project.properties
 
 ### Claude Code ###
 .claude/*
-AGENTS.md
+!AGENTS.md
+!CLAUDE.md
 .opencode/skills/*
 
 ### AI Agent Files ###
