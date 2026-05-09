@@ -1,7 +1,9 @@
 # JOBIS Agent Index
 
 Use this file as a table of contents only.
-Open the smallest matching file under `docs/` and follow that file.
+The Markdown files under `docs/` are the SSOT for repository workflow, conventions, git rules, and review criteria.
+Open the smallest matching file under `docs/` and follow that file before acting.
+If this file summarizes a rule and a `docs/*.md` file gives the detailed rule, the `docs/*.md` file is authoritative.
 
 ## Start
 - `docs/index.md`
@@ -25,27 +27,16 @@ Open the smallest matching file under `docs/` and follow that file.
 - PR title, template, labels, assignee -> `docs/pr-workflow.md`
 - release flow -> `docs/release-workflow.md`
 - agent usage rules -> `docs/agent-guide.md`
+- Codex native agent metadata -> `.codex/agents/*.toml`
+
+## 구현자 / 검증자 분리 규칙
+- 자세한 규칙의 SSOT는 `docs/agent-guide.md`이다.
+- 코드 수정 작업은 `implementer` 역할과 `verifier` 역할을 분리한다.
+- Codex native subagent를 사용할 수 있으면 `.codex/agents/implementer.toml`과 `.codex/agents/verifier.toml`을 사용한다.
+- verifier가 `FAIL`을 내면 완료로 보고하지 않는다. implementer로 되돌려 수정한 뒤 다시 verifier 검증을 받는다.
 
 ## 하네스 진입 규칙
-- API, performance, latency, runtime 관련 요청은 가장 먼저 `harness/runbooks/autopilot.md`를 읽는다.
-- 하네스는 Markdown runbook 기반이다. 기존 JavaScript 스크립트를 실행 레이어로 쓰지 않는다.
-- runbook이 QA 필요라고 판단하면 `harness/runbooks/01-intake.md`, `02-fixture-plan.md`, `03-env-up.md`, `04-qa.md`를 순서대로 따른다.
-- runbook이 SRE 필요라고 판단하면 `harness/runbooks/05-sre.md`도 따른다.
-- 코드가 바뀐 작업은 QA/SRE가 필요 없어도 커밋 전에 반드시 `harness/runbooks/07-build-before-commit.md`를 따른다.
-- 새 API는 request contract가 QA 가능한 수준으로 완성되기 전까지 production code를 작성하지 않는다.
-
-## API Intake 규칙
-- 사용자가 API 생성 또는 변경을 요청했는데 request contract가 불완전하면 바로 구현하지 않는다.
-- 먼저 `harness/requests/generated/` 아래에 request contract를 요구한다.
-- 그 다음 `harness/runbooks/01-intake.md`를 따른다.
-- contract가 불완전하면 빠진 항목만 질문하고 멈춘다.
-- 새 API 또는 변경 API는 request contract가 QA 가능한 수준이 되기 전까지 production code를 작성하지 않는다.
-- request contract가 완성되면 `harness/runbooks/02-fixture-plan.md`와 `harness/runbooks/04-qa.md`를 따른다.
-- 사용자가 짧은 API prompt만 줬고 request contract가 없으면 최소한 아래 항목을 질문한다.
-  - endpoint path
-  - HTTP method
-  - caller authority
-  - request fields
-  - success status/body
-  - failure cases
-  - side effects that must be verified
+- API, request/response, authority, runtime, performance, latency 관련 요청은 `harness/runbooks/autopilot.md`가 SSOT다.
+- `AGENTS.md`에는 상세 실행 순서를 반복하지 않는다. QA/SRE 여부, intake gate, fixture, env, curl, latency, cleanup 순서는 runbook을 따른다.
+- 코드가 바뀐 작업은 QA/SRE 대상이 아니어도 커밋 전 `harness/runbooks/07-build-before-commit.md`를 따른다.
+- 하네스 대상이 아닌 문서-only 작업이면 최종 답변에 생략 이유를 명시한다.

@@ -11,7 +11,7 @@ The issue number in the PR title must match the branch issue number.
 
 ## Required Order
 1. Check current branch and working tree
-2. Confirm the branch has been pushed to origin
+2. Confirm the branch has been pushed using `docs/git-workflow.md`
 3. Confirm there is no existing PR for the same head branch
 4. Prepare PR title in repository style
 5. Prepare PR body using the repository template sections
@@ -67,8 +67,12 @@ git status --short --branch
 git log --oneline --decorate -n 5
 ```
 
-Push the branch:
+Push the branch only after reading `docs/git-workflow.md`.
+That file decides whether the target remote is `origin` or `harness`.
+
+Push command examples:
 ```bash
+git push -u harness <branch-name>
 git push -u origin <branch-name>
 ```
 

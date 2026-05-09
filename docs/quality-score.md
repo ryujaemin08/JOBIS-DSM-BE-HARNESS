@@ -4,6 +4,8 @@
 - 이 문서는 change 가 단순히 merged 가능한지보다 실제로 healthy 한지 판단하기 위한 lightweight scorecard 다.
 - completion report, PR 준비, risky change review 전에 사용한다.
 - 목표는 완벽한 숫자놀음이 아니라 consistent release-readiness judgment 다.
+- 이 문서는 verifier의 기본 PASS/FAIL gate가 아니다. 일반 검증은 관련 SSOT 문서와 실행 증거로 판단한다.
+- 점수화가 명시적으로 필요하지 않으면 이 문서를 읽지 않아도 된다.
 
 ## Scoring Model
 - 각 category 를 `0` 부터 `2` 까지 채점한다.
