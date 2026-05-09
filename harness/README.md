@@ -1,6 +1,8 @@
-# JOBIS 로컬 하네스
+# JOBIS API/Runtime 하네스
 
 이 하네스는 JOBIS API 변경을 로컬에서 확인하기 위한 문서 기반 실행 절차입니다.
+현재 폴더명은 기존 참조와 Git remote routing 호환성을 위해 `harness/`로 유지합니다.
+역할 기준으로는 `api-harness` 또는 `api-runtime-harness`에 가깝습니다.
 
 이전 구조처럼 JavaScript 스크립트를 실행하지 않습니다. 에이전트와 개발자는 `harness/runbooks/`의 Markdown 문서를 읽고, 문서에 적힌 순서와 명령어를 직접 실행합니다.
 

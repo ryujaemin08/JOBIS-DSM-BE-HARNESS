@@ -1,6 +1,7 @@
-# JOBIS 하네스 가이드
+# JOBIS API/Runtime 하네스 가이드
 
 이 문서는 에이전트와 평가자가 하네스 준수 여부를 판단할 때 쓰는 기준입니다.
+이 하네스는 모든 코드 변경에 대한 범용 절차가 아니라 API, request/response, authority, runtime, latency 검증 절차입니다.
 
 하네스는 더 이상 JavaScript 실행 스크립트를 기준으로 하지 않습니다. 기준은 `harness/runbooks/`의 Markdown 문서와 그 문서에 적힌 실제 명령어 실행 결과입니다.
 
